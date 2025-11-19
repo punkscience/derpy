@@ -17,9 +17,14 @@ A command-line music player that plays audio files from a specified directory wi
 - Go 1.19 or higher
 
 #### Linux
-- For audio playback, you will need the ALSA development library. On Debian-based distributions, you can install it with:
+- For audio playback, you will need the ALSA development library.
+- On Debian/Ubuntu, you can install it with:
   ```bash
-  sudo apt-get install libasound2-dev
+  sudo apt install libasound2-dev
+  ```
+- On Fedora/Red Hat, you can install it with:
+  ```bash
+  sudo dnf install alsa-lib-devel
   ```
 
 ### Build from source

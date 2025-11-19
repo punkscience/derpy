@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -12,12 +13,18 @@ import (
 func main() {
 	// Check command line arguments
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "Usage: %s <music_directory>\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "Example: %s C:\\Users\\me\\Music\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [--no-tui] <music_directory>\n", os.Args[0])
 		os.Exit(1)
 	}
 
-	musicDir := os.Args[1]
+	var musicDir string
+	noTui := false
+	if len(os.Args) > 2 && os.Args[1] == "--no-tui" {
+		noTui = true
+		musicDir = os.Args[2]
+	} else {
+		musicDir = os.Args[1]
+	}
 
 	// Verify the directory exists
 	if _, err := os.Stat(musicDir); os.IsNotExist(err) {
@@ -40,13 +47,41 @@ func main() {
 	// Shuffle the playlist
 	shufflePlaylist(playlist)
 
-	// Create and run the TUI application
-	model := NewPlayerModel(playlist)
-	program := tea.NewProgram(model, tea.WithAltScreen())
+	if noTui {
+		// Non-TUI mode
+		player := NewAudioPlayer()
+		defer player.Shutdown()
 
-	if _, err := program.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
-		os.Exit(1)
+		for _, track := range playlist {
+			fmt.Printf("Playing: %s\n", track)
+			err := player.LoadTrack(track)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error loading track %s: %v\n", track, err)
+				continue
+			}
+
+			err = player.Play()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error playing track %s: %v\n", track, err)
+				continue
+			}
+
+			// Wait for the track to finish
+			for !player.HasEnded() {
+				time.Sleep(100 * time.Millisecond)
+			}
+			player.Stop()
+		}
+		fmt.Println("Playlist finished.")
+	} else {
+		// Create and run the TUI application
+		model := NewPlayerModel(playlist)
+		program := tea.NewProgram(model, tea.WithAltScreen())
+
+		if _, err := program.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
+			os.Exit(1)
+		}
 	}
 }
 
