@@ -3,6 +3,7 @@
 pkgs.mkShell {
   buildInputs = [
     pkgs.go
+    pkgs.gcc
     pkgs.pkg-config
     pkgs.alsa-lib
   ];
