@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Dirplay
+Comment=A simple music player for the terminal
+Exec=dirplay
+Icon=dirplay
+Terminal=true
+Type=Application
+Categories=Audio;AudioVideo;Player;ConsoleOnly;
+Keywords=music;player;terminal;go;
