@@ -68,6 +68,8 @@ func main() {
 
 			// Wait for the track to finish
 			for !player.HasEnded() {
+				// Update position to trigger ListenBrainz scrobbling
+				_ = player.GetPosition()
 				time.Sleep(100 * time.Millisecond)
 			}
 			player.Stop()

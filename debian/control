@@ -1,7 +1,7 @@
 Source: dirplay
 Section: sound
 Priority: optional
-Maintainer: Darryl <darryl@example.com>
+Maintainer: Darryl <darryl@punkscience.ca>
 Build-Depends: debhelper-compat (= 13), golang-go, libasound2-dev
 Standards-Version: 4.6.2
 Homepage: https://github.com/example/dirplay

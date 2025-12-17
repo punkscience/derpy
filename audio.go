@@ -57,11 +57,15 @@ type AudioPlayer struct {
 	hasEnded           bool
 	completionStream   *CompletionStreamer
 	speakerInitialized bool
+	scrobbleTracker    *ScrobbleTracker
+	lbClient           *ListenBrainzClient
 }
 
 // NewAudioPlayer creates a new audio player instance
 func NewAudioPlayer() *AudioPlayer {
-	return &AudioPlayer{}
+	return &AudioPlayer{
+		lbClient: NewListenBrainzClient(),
+	}
 }
 
 // LoadTrack loads an audio file for playback
@@ -128,6 +132,11 @@ func (ap *AudioPlayer) LoadTrack(filePath string) error {
 	streamLen := streamer.Len()
 	ap.duration = format.SampleRate.D(streamLen)
 	ap.currentPos = 0
+
+	// Initialize ListenBrainz scrobble tracker
+	if ap.lbClient.IsEnabled() {
+		ap.scrobbleTracker = NewScrobbleTracker(ap.lbClient, ap.artist, ap.title, ap.album, ap.duration)
+	}
 
 	// Initialize speaker only once per application lifecycle
 	if !ap.speakerInitialized {
@@ -241,6 +250,7 @@ func (ap *AudioPlayer) Stop() {
 	// Clear references to prevent accumulation
 	ap.ctrl = nil
 	ap.completionStream = nil
+	ap.scrobbleTracker = nil
 }
 
 // Close closes the audio player and releases resources
@@ -284,6 +294,11 @@ func (ap *AudioPlayer) GetPosition() time.Duration {
 	// Don't exceed duration
 	if pos > ap.duration {
 		pos = ap.duration
+	}
+
+	// Update ListenBrainz scrobble tracker
+	if ap.scrobbleTracker != nil {
+		ap.scrobbleTracker.Update(pos)
 	}
 
 	return pos

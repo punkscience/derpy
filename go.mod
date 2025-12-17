@@ -7,6 +7,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
 	github.com/gopxl/beep v1.4.1
+	github.com/hirigaray/go-listenbrainz v0.0.0-20241208212301-5487bfa2a78c
 )
 
 require (
