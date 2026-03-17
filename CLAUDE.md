@@ -1,0 +1,45 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project
+
+**dirplay** is a terminal-based music player in Go. It recursively scans a directory for audio files, shuffles them, and plays them with a Bubble Tea TUI. ListenBrainz scrobbling is optional via `LISTENBRAINZ_TOKEN` env var.
+
+## Build & Run
+
+```bash
+# No system dev headers required — PulseAudio/PipeWire is used at runtime
+go mod tidy
+go build -o dirplay
+
+# Run
+./dirplay <music_directory>
+./dirplay --no-tui <music_directory>
+```
+
+## Architecture
+
+| File | Role |
+|------|------|
+| `main.go` | CLI args, recursive directory scan, playlist init, TUI/non-TUI dispatch |
+| `model.go` | Bubble Tea model — keyboard input, progress bar rendering, note-saving to `~/track-notes.md` |
+| `audio.go` | `AudioPlayer` — Beep-based decoding/playback, pause/resume, position tracking via `CompletionStreamer`. Uses `speaker.go` functions instead of `gopxl/beep/speaker`. |
+| `speaker.go` | Custom PulseAudio speaker backed by `jfreymuth/pulse` (pure Go, no ALSA headers). Exposes `speakerInit/Play/Clear/Lock/Unlock` used by `audio.go`. |
+| `listenbrainz.go` | Optional scrobbling — submits "playing now" immediately, scrobbles at 25% completion (min 30s tracks) |
+| `shuffle.go` | Fisher-Yates shuffle seeded with current time |
+
+**Audio formats:** mp3, wav, flac, ogg, m4a, aac
+**Key libraries:** `charmbracelet/bubbletea`, `gopxl/beep`, `dhowden/tag` (metadata), `hirigaray/go-listenbrainz`
+
+**TUI:** 100ms tick interval for progress updates. Position is calculated from elapsed wall-clock time with pause offset.
+
+**Keyboard controls:** `←`/`→` prev/next track, `SPACE` pause/resume, `n` save note, `ESC`/`q` quit.
+
+## Development Directives
+
+- Use SOLID principles
+- Comment code well
+- Always write tests (`*_test.go` files) — the project currently has none and needs them
+- Refer to `.copilot/tech-spec.md` for feature tracking; mark features complete when done
+- Use Cobra for any new CLI commands (currently uses `flag` package — prefer Cobra per project rules)

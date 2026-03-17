@@ -44,6 +44,9 @@ type noteSavedMsg struct {
 	success bool
 	error   string
 }
+type trackDeletedMsg struct {
+	err error
+}
 
 // NewPlayerModel creates a new player model
 func NewPlayerModel(playlist []string) *PlayerModel {
@@ -115,6 +118,12 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.playing {
 				return m, m.saveTrackNote()
 			}
+
+		case "d":
+			// Delete current track from disk and advance to next
+			if m.playing && m.currentIndex < len(m.playlist) {
+				return m, m.deleteCurrentTrack()
+			}
 		}
 
 	case tickMsg:
@@ -153,6 +162,18 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.album = msg.album
 		// Restart the tick cycle for position updates
 		return m, m.tickCmd()
+
+	case trackDeletedMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		// Playlist was already updated in deleteCurrentTrack; load the next track.
+		// currentIndex was adjusted to stay in bounds.
+		if len(m.playlist) == 0 {
+			return m, tea.Quit
+		}
+		return m, m.loadCurrentTrack()
 
 	case noteSavedMsg:
 		// Handle note saving feedback (could show a brief message)
@@ -256,7 +277,7 @@ func (m *PlayerModel) View() string {
 	content.WriteString("\n")
 
 	// Controls
-	controls := "Controls: [←] Previous  [→] Next  [SPACE] Pause/Play  [N] Note  [ESC] Quit"
+	controls := "Controls: [←] Previous  [→] Next  [SPACE] Pause/Play  [N] Note  [D] Delete  [ESC] Quit"
 	content.WriteString(controlsStyle.Render(controls))
 
 	return content.String()
@@ -360,6 +381,33 @@ func (m *PlayerModel) saveTrackNote() tea.Cmd {
 		}
 
 		return noteSavedMsg{success: true}
+	}
+}
+
+// deleteCurrentTrack stops playback, removes the file from disk, removes it
+// from the playlist, and signals the TUI to load the next track.
+func (m *PlayerModel) deleteCurrentTrack() tea.Cmd {
+	// Capture path and index before the goroutine runs
+	filePath := m.playlist[m.currentIndex]
+	idx := m.currentIndex
+
+	// Stop playback immediately (synchronous)
+	m.player.Stop()
+	m.playing = false
+
+	// Remove the entry from the playlist
+	m.playlist = append(m.playlist[:idx], m.playlist[idx+1:]...)
+
+	// Clamp index so it points to the next track (or wraps around)
+	if len(m.playlist) > 0 && m.currentIndex >= len(m.playlist) {
+		m.currentIndex = 0
+	}
+
+	return func() tea.Msg {
+		if err := os.Remove(filePath); err != nil {
+			return trackDeletedMsg{err: fmt.Errorf("delete failed: %w", err)}
+		}
+		return trackDeletedMsg{}
 	}
 }
 

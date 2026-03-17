@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"os"
 	"time"
 
 	"github.com/hirigaray/go-listenbrainz"
@@ -13,9 +12,10 @@ type ListenBrainzClient struct {
 	token string
 }
 
-// NewListenBrainzClient creates a new ListenBrainz client if token is available
+// NewListenBrainzClient creates a new ListenBrainz client if a token is available.
+// It checks ~/.config/dirplay/config.json first, then falls back to LISTENBRAINZ_TOKEN env var.
 func NewListenBrainzClient() *ListenBrainzClient {
-	token := os.Getenv("LISTENBRAINZ_TOKEN")
+	token := LoadListenBrainzToken()
 	if token == "" {
 		return nil // No token available, disable ListenBrainz functionality
 	}

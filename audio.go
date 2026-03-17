@@ -11,7 +11,6 @@ import (
 	"github.com/gopxl/beep"
 	"github.com/gopxl/beep/flac"
 	"github.com/gopxl/beep/mp3"
-	"github.com/gopxl/beep/speaker"
 	"github.com/gopxl/beep/vorbis"
 	"github.com/gopxl/beep/wav"
 )
@@ -140,7 +139,7 @@ func (ap *AudioPlayer) LoadTrack(filePath string) error {
 
 	// Initialize speaker only once per application lifecycle
 	if !ap.speakerInitialized {
-		if err := speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10)); err != nil {
+		if err := speakerInit(format.SampleRate, format.SampleRate.N(time.Second/10)); err != nil {
 			return fmt.Errorf("failed to initialize speaker: %w", err)
 		}
 		ap.speakerInitialized = true
@@ -160,7 +159,7 @@ func (ap *AudioPlayer) Play() error {
 	}
 
 	// Clear any existing audio from speaker
-	speaker.Clear()
+	speakerClear()
 
 	// Give speaker time to fully clear
 	time.Sleep(10 * time.Millisecond)
@@ -181,7 +180,7 @@ func (ap *AudioPlayer) Play() error {
 	ap.currentPos = 0
 
 	// Start playback
-	speaker.Play(ap.ctrl)
+	speakerPlay(ap.ctrl)
 	ap.playing = true
 
 	return nil
@@ -190,20 +189,20 @@ func (ap *AudioPlayer) Play() error {
 // Pause pauses playback
 func (ap *AudioPlayer) Pause() {
 	if ap.ctrl != nil && ap.playing {
-		speaker.Lock()
+		speakerLock()
 		ap.ctrl.Paused = true
 		ap.currentPos += time.Since(ap.startTime) // Capture position at pause
-		speaker.Unlock()
+		speakerUnlock()
 	}
 }
 
 // Resume resumes playback
 func (ap *AudioPlayer) Resume() {
 	if ap.ctrl != nil && ap.playing {
-		speaker.Lock()
+		speakerLock()
 		ap.ctrl.Paused = false
 		ap.startTime = time.Now() // Reset start time on resume
-		speaker.Unlock()
+		speakerUnlock()
 	}
 }
 
@@ -212,9 +211,9 @@ func (ap *AudioPlayer) IsPaused() bool {
 	if ap.ctrl == nil {
 		return false
 	}
-	speaker.Lock()
+	speakerLock()
 	paused := ap.ctrl.Paused
-	speaker.Unlock()
+	speakerUnlock()
 	return paused
 }
 
@@ -222,7 +221,7 @@ func (ap *AudioPlayer) IsPaused() bool {
 func (ap *AudioPlayer) Stop() {
 	if ap.playing {
 		// Clear the speaker to stop any audio
-		speaker.Clear()
+		speakerClear()
 
 		// Wait for speaker to fully stop
 		time.Sleep(20 * time.Millisecond)
@@ -258,7 +257,7 @@ func (ap *AudioPlayer) Close() {
 	ap.Stop()
 
 	// Final cleanup - clear speaker one last time
-	speaker.Clear()
+	speakerClear()
 
 	// Reset speaker initialization flag if needed for restart
 	ap.speakerInitialized = false
@@ -276,8 +275,8 @@ func (ap *AudioPlayer) GetDuration() time.Duration {
 
 // GetPosition returns the current playback position
 func (ap *AudioPlayer) GetPosition() time.Duration {
-	speaker.Lock()
-	defer speaker.Unlock()
+	speakerLock()
+	defer speakerUnlock()
 
 	if ap.ctrl != nil && ap.ctrl.Paused {
 		return ap.currentPos
