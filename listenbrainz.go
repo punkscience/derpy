@@ -107,8 +107,6 @@ func (st *ScrobbleTracker) Update(currentPosition time.Duration) {
 		err := st.lbClient.SubmitListenNow(st.artist, st.title, st.album)
 		if err != nil {
 			log.Printf("Warning: Failed to submit playing now to ListenBrainz: %v", err)
-		} else {
-			log.Printf("Submitted playing now to ListenBrainz: %s - %s", st.artist, st.title)
 		}
 		st.submitted = true
 	}
@@ -119,8 +117,6 @@ func (st *ScrobbleTracker) Update(currentPosition time.Duration) {
 		err := st.lbClient.SubmitScrobble(st.artist, st.title, st.album, st.startTime)
 		if err != nil {
 			log.Printf("Warning: Failed to scrobble to ListenBrainz: %v", err)
-		} else {
-			log.Printf("Scrobbled to ListenBrainz: %s - %s", st.artist, st.title)
 		}
 		st.scrobbled = true
 	}

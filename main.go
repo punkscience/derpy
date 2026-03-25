@@ -94,10 +94,8 @@ func runPlayer(musicDir string, keywords []string, noTUI bool) error {
 		return fmt.Errorf("no audio files found in directory: %s", musicDir)
 	}
 
-	// Only shuffle if no keywords are provided; the user requested "in sequence" for filtered results.
-	if len(keywords) == 0 {
-		shufflePlaylist(playlist)
-	}
+	// Always shuffle by default
+	shufflePlaylist(playlist)
 
 	if noTUI {
 		return runNoTUI(playlist)

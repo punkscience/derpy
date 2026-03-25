@@ -42,7 +42,7 @@ go build -o dirplay
 ./dirplay /path/to/music
 
 # Play with keyword filtering (matches filename or relative path)
-# This also disables automatic shuffling ("in sequence")
+# Shuffling still applies to the filtered results.
 ./dirplay /path/to/music jesus gospel
 
 # Play without TUI

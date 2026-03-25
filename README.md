@@ -5,7 +5,7 @@ A command-line music player that plays audio files from a specified directory wi
 ## Features
 
 - ✅ Recursively scans directories for audio files
-- ✅ Shuffles playlist automatically
+- ✅ Shuffles playlist automatically (including keyword search results)
 - ✅ Cross-platform audio playback (Windows, Linux, macOS)
 - ✅ Minimal TUI with current track display and progress bar
 - ✅ Keyboard controls for navigation and playback control
