@@ -22,11 +22,13 @@ func rootCmd() *cobra.Command {
 	var noTUI bool
 
 	cmd := &cobra.Command{
-		Use:   "dirplay [--no-tui] <music_directory>",
+		Use:   "dirplay [--no-tui] <music_directory> [keywords...]",
 		Short: "Terminal music player — shuffles and plays a directory of audio files",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPlayer(args[0], noTUI)
+			musicDir := args[0]
+			keywords := args[1:]
+			return runPlayer(musicDir, keywords, noTUI)
 		},
 	}
 
@@ -75,21 +77,27 @@ LISTENBRAINZ_TOKEN environment variable). Pass an empty string to clear it:
 	}
 }
 
-// runPlayer scans the directory, shuffles the playlist, and starts playback.
-func runPlayer(musicDir string, noTUI bool) error {
+// runPlayer scans the directory, filters by keywords, shuffles (if no keywords), and starts playback.
+func runPlayer(musicDir string, keywords []string, noTUI bool) error {
 	if _, err := os.Stat(musicDir); os.IsNotExist(err) {
 		return fmt.Errorf("directory does not exist: %s", musicDir)
 	}
 
-	playlist, err := scanMusicDirectory(musicDir)
+	playlist, err := scanMusicDirectory(musicDir, keywords)
 	if err != nil {
 		return fmt.Errorf("error scanning directory: %w", err)
 	}
 	if len(playlist) == 0 {
+		if len(keywords) > 0 {
+			return fmt.Errorf("no audio files matching %v found in directory: %s", keywords, musicDir)
+		}
 		return fmt.Errorf("no audio files found in directory: %s", musicDir)
 	}
 
-	shufflePlaylist(playlist)
+	// Only shuffle if no keywords are provided; the user requested "in sequence" for filtered results.
+	if len(keywords) == 0 {
+		shufflePlaylist(playlist)
+	}
 
 	if noTUI {
 		return runNoTUI(playlist)
@@ -136,8 +144,8 @@ func runTUI(playlist []string) error {
 	return nil
 }
 
-// scanMusicDirectory recursively scans a directory for audio files.
-func scanMusicDirectory(root string) ([]string, error) {
+// scanMusicDirectory recursively scans a directory for audio files, optionally filtering by keywords.
+func scanMusicDirectory(root string, keywords []string) ([]string, error) {
 	var playlist []string
 
 	audioExts := map[string]bool{
@@ -149,6 +157,12 @@ func scanMusicDirectory(root string) ([]string, error) {
 		".aac":  true,
 	}
 
+	// Prepare keywords for case-insensitive matching
+	var lowerKeywords []string
+	for _, k := range keywords {
+		lowerKeywords = append(lowerKeywords, strings.ToLower(k))
+	}
+
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -157,6 +171,25 @@ func scanMusicDirectory(root string) ([]string, error) {
 			return nil
 		}
 		if audioExts[strings.ToLower(filepath.Ext(path))] {
+			// If keywords are provided, check if any match the relative path or filename
+			if len(lowerKeywords) > 0 {
+				rel, err := filepath.Rel(root, path)
+				if err != nil {
+					rel = path
+				}
+				relLower := strings.ToLower(rel)
+
+				matched := false
+				for _, kw := range lowerKeywords {
+					if strings.Contains(relLower, kw) {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					return nil
+				}
+			}
 			playlist = append(playlist, path)
 		}
 		return nil
