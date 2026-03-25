@@ -132,10 +132,24 @@ func runNoTUI(playlist []string) error {
 	return nil
 }
 
-// runTUI starts the Bubble Tea TUI player.
+// runTUI starts the Bubble Tea TUI player and, if the session D-Bus is
+// available, registers an MPRIS2 service so external clients (playerctl,
+// Waybar, etc.) can query and control playback.
 func runTUI(playlist []string) error {
 	model := NewPlayerModel(playlist)
 	program := tea.NewProgram(model, tea.WithAltScreen())
+
+	// Create the MPRIS service before starting the program so the D-Bus name
+	// is registered before the first PropertiesChanged signal fires.
+	mpris, err := NewMPRISService(model, program)
+	if err != nil {
+		// Non-fatal: log and continue without MPRIS.
+		fmt.Fprintf(os.Stderr, "MPRIS: failed to start D-Bus service: %v\n", err)
+	}
+	// Give the model a reference so it can emit state-change signals.
+	model.mpris = mpris
+	defer mpris.Close()
+
 	if _, err := program.Run(); err != nil {
 		return fmt.Errorf("error running TUI: %w", err)
 	}
