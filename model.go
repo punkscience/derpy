@@ -89,13 +89,13 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.paused {
 					m.player.Resume()
 					m.paused = false
-					m.mpris.NotifyStateChanged()
+					m.mpris.NotifyStateChanged(m)
 					// Restart ticking when resuming
 					return m, m.tickCmd()
 				} else {
 					m.player.Pause()
 					m.paused = true
-					m.mpris.NotifyStateChanged()
+					m.mpris.NotifyStateChanged(m)
 					// Stop ticking when paused (handled by tickMsg case)
 				}
 			}
@@ -138,7 +138,7 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Resume from pause.
 			m.player.Resume()
 			m.paused = false
-			m.mpris.NotifyStateChanged()
+			m.mpris.NotifyStateChanged(m)
 			return m, m.tickCmd()
 		} else if !m.playing {
 			// Nothing loaded yet — load and play.
@@ -149,7 +149,7 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.playing && !m.paused {
 			m.player.Pause()
 			m.paused = true
-			m.mpris.NotifyStateChanged()
+			m.mpris.NotifyStateChanged(m)
 		}
 
 	case mprisPlayPauseMsg:
@@ -157,12 +157,12 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.paused {
 				m.player.Resume()
 				m.paused = false
-				m.mpris.NotifyStateChanged()
+				m.mpris.NotifyStateChanged(m)
 				return m, m.tickCmd()
 			} else {
 				m.player.Pause()
 				m.paused = true
-				m.mpris.NotifyStateChanged()
+				m.mpris.NotifyStateChanged(m)
 			}
 		}
 
@@ -171,7 +171,7 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.player.Stop()
 			m.playing = false
 			m.paused = false
-			m.mpris.NotifyStateChanged()
+			m.mpris.NotifyStateChanged(m)
 		}
 
 	case mprisNextMsg:
@@ -201,7 +201,7 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if err := m.player.Seek(newPos); err == nil {
 				m.position = newPos
-				m.mpris.EmitSeeked()
+				m.mpris.EmitSeeked(m)
 			}
 		}
 
@@ -216,7 +216,7 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if err := m.player.Seek(pos); err == nil {
 				m.position = pos
-				m.mpris.EmitSeeked()
+				m.mpris.EmitSeeked(m)
 			}
 		}
 
@@ -255,8 +255,8 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.title = msg.title
 		m.album = msg.album
 		// Notify MPRIS clients that metadata and status have changed.
-		m.mpris.NotifyStateChanged()
-		m.mpris.EmitSeeked() // Position jumped to 0 on track change.
+		m.mpris.NotifyStateChanged(m)
+		m.mpris.EmitSeeked(m) // Position jumped to 0 on track change.
 		// Restart the tick cycle for position updates
 		return m, m.tickCmd()
 

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -102,18 +103,40 @@ const mprisIntrospectXML = `
 
 // ---- MPRISService -----------------------------------------------------------
 
+// mprisStateSnapshot holds a point-in-time copy of the player state fields
+// that D-Bus goroutines need to read.  The snapshot is updated on the Bubble
+// Tea goroutine (single writer) and read from D-Bus goroutines (multiple
+// readers), protected by mu.  This eliminates the data race between the
+// Bubble Tea Update loop writing PlayerModel fields and godbus goroutines
+// reading them concurrently.
+type mprisStateSnapshot struct {
+	playing      bool
+	paused       bool
+	artist       string
+	title        string
+	album        string
+	position     time.Duration
+	duration     time.Duration
+	currentIndex int
+	trackPath    string // current file path; used as title fallback
+}
+
 // MPRISService registers dirplay on the session D-Bus and handles MPRIS2
 // method calls by forwarding them as messages into the Bubble Tea program.
 type MPRISService struct {
 	conn    *dbus.Conn
-	model   *PlayerModel
 	program *tea.Program
+
+	// mu protects snap from concurrent reads (D-Bus goroutines) and writes
+	// (Bubble Tea goroutine via NotifyStateChanged / EmitSeeked).
+	mu   sync.RWMutex
+	snap mprisStateSnapshot
 }
 
 // NewMPRISService creates and registers the MPRIS2 service.  If the session
 // D-Bus is unavailable it returns (nil, nil) so the caller can continue
 // without MPRIS support.
-func NewMPRISService(model *PlayerModel, program *tea.Program) (*MPRISService, error) {
+func NewMPRISService(program *tea.Program) (*MPRISService, error) {
 	conn, err := dbus.SessionBus()
 	if err != nil {
 		log.Printf("MPRIS: could not connect to session D-Bus, continuing without MPRIS support: %v", err)
@@ -122,7 +145,6 @@ func NewMPRISService(model *PlayerModel, program *tea.Program) (*MPRISService, e
 
 	svc := &MPRISService{
 		conn:    conn,
-		model:   model,
 		program: program,
 	}
 
@@ -221,7 +243,8 @@ func (s *MPRISService) Set(iface, prop string, value dbus.Variant) *dbus.Error {
 }
 
 // allProperties builds the property map for the given interface by reading
-// current model state.  Returns nil for unknown interfaces.
+// from the snapshot (safe for D-Bus goroutines).  Returns nil for unknown
+// interfaces.
 func (s *MPRISService) allProperties(iface string) map[string]dbus.Variant {
 	switch iface {
 	case "org.mpris.MediaPlayer2":
@@ -234,14 +257,20 @@ func (s *MPRISService) allProperties(iface string) map[string]dbus.Variant {
 			"SupportedUriSchemes": dbus.MakeVariant([]string{"file"}),
 		}
 	case "org.mpris.MediaPlayer2.Player":
+		// Take a read lock for the whole property build so we see a
+		// consistent snapshot across all fields.
+		s.mu.RLock()
+		snap := s.snap
+		s.mu.RUnlock()
+
 		return map[string]dbus.Variant{
-			"PlaybackStatus": dbus.MakeVariant(s.playbackStatus()),
+			"PlaybackStatus": dbus.MakeVariant(playbackStatusFromSnap(snap)),
 			"LoopStatus":     dbus.MakeVariant("None"),
 			"Rate":           dbus.MakeVariant(float64(1.0)),
 			"Shuffle":        dbus.MakeVariant(false),
-			"Metadata":       dbus.MakeVariant(s.metadata()),
+			"Metadata":       dbus.MakeVariant(metadataFromSnap(snap)),
 			"Volume":         dbus.MakeVariant(float64(1.0)),
-			"Position":       dbus.MakeVariant(s.positionMicros()),
+			"Position":       dbus.MakeVariant(snap.position.Microseconds()),
 			"MinimumRate":    dbus.MakeVariant(float64(1.0)),
 			"MaximumRate":    dbus.MakeVariant(float64(1.0)),
 			"CanGoNext":      dbus.MakeVariant(true),
@@ -318,7 +347,10 @@ func (s *MPRISService) SeekByOffset(offsetMicros int64) *dbus.Error {
 // currently playing track the seek is ignored per the MPRIS2 spec.
 func (s *MPRISService) SetPosition(trackId dbus.ObjectPath, positionMicros int64) *dbus.Error {
 	// Validate that the trackId matches the currently playing track.
-	expected := dbus.ObjectPath(fmt.Sprintf("/org/dirplay/track/%d", s.model.currentIndex))
+	s.mu.RLock()
+	currentIndex := s.snap.currentIndex
+	s.mu.RUnlock()
+	expected := dbus.ObjectPath(fmt.Sprintf("/org/dirplay/track/%d", currentIndex))
 	if trackId != expected {
 		// Per spec: "If the TrackId argument is not the same as the current
 		// TrackId, this request should be ignored."
@@ -334,20 +366,47 @@ func (s *MPRISService) OpenUri(uri string) *dbus.Error { return nil }
 
 // ---- State change notifications ---------------------------------------------
 
-// NotifyStateChanged emits a PropertiesChanged signal on the D-Bus so that
-// clients (Waybar, playerctl, etc.) pick up the new status and metadata
-// immediately without polling.
+// NotifyStateChanged updates the internal snapshot from the current model
+// state (must be called on the Bubble Tea goroutine) and emits a
+// PropertiesChanged D-Bus signal so that clients (Waybar, playerctl, etc.)
+// pick up the new status and metadata immediately without polling.
 //
 // Call this from the Bubble Tea Update() method after any state transition
 // (track load, pause, resume, stop, next, previous).
-func (s *MPRISService) NotifyStateChanged() {
+func (s *MPRISService) NotifyStateChanged(m *PlayerModel) {
 	if s == nil || s.conn == nil {
 		return
 	}
 
+	// Build a safe snapshot of the model state.  All fields are copied under
+	// the write lock so D-Bus goroutines always see a consistent view.
+	trackPath := ""
+	if m.currentIndex < len(m.playlist) {
+		trackPath = m.playlist[m.currentIndex]
+	}
+
+	s.mu.Lock()
+	s.snap = mprisStateSnapshot{
+		playing:      m.playing,
+		paused:       m.paused,
+		artist:       m.artist,
+		title:        m.title,
+		album:        m.album,
+		position:     m.position,
+		duration:     m.duration,
+		currentIndex: m.currentIndex,
+		trackPath:    trackPath,
+	}
+	s.mu.Unlock()
+
+	// Build the signal payload from the freshly-committed snapshot.
+	s.mu.RLock()
+	snap := s.snap
+	s.mu.RUnlock()
+
 	changedProps := map[string]dbus.Variant{
-		"PlaybackStatus": dbus.MakeVariant(s.playbackStatus()),
-		"Metadata":       dbus.MakeVariant(s.metadata()),
+		"PlaybackStatus": dbus.MakeVariant(playbackStatusFromSnap(snap)),
+		"Metadata":       dbus.MakeVariant(metadataFromSnap(snap)),
 	}
 
 	err := s.conn.Emit(
@@ -362,16 +421,22 @@ func (s *MPRISService) NotifyStateChanged() {
 	}
 }
 
-// EmitSeeked emits the Seeked signal with the current position.  Call this
-// after a seek operation completes.
-func (s *MPRISService) EmitSeeked() {
+// EmitSeeked updates the position in the snapshot and emits the Seeked signal
+// with the current position.  Call this after a seek operation completes.
+func (s *MPRISService) EmitSeeked(m *PlayerModel) {
 	if s == nil || s.conn == nil {
 		return
 	}
+
+	s.mu.Lock()
+	s.snap.position = m.position
+	pos := s.snap.position
+	s.mu.Unlock()
+
 	err := s.conn.Emit(
 		"/org/mpris/MediaPlayer2",
 		"org.mpris.MediaPlayer2.Player.Seeked",
-		s.positionMicros(),
+		pos.Microseconds(),
 	)
 	if err != nil {
 		log.Printf("MPRIS: failed to emit Seeked: %v", err)
@@ -380,45 +445,38 @@ func (s *MPRISService) EmitSeeked() {
 
 // ---- Helpers ----------------------------------------------------------------
 
-// playbackStatus returns the MPRIS2 PlaybackStatus string for the current
-// model state.
-func (s *MPRISService) playbackStatus() string {
-	if !s.model.playing {
+// playbackStatusFromSnap returns the MPRIS2 PlaybackStatus string from a snapshot.
+func playbackStatusFromSnap(snap mprisStateSnapshot) string {
+	if !snap.playing {
 		return "Stopped"
 	}
-	if s.model.paused {
+	if snap.paused {
 		return "Paused"
 	}
 	return "Playing"
 }
 
-// positionMicros returns the current playback position in microseconds, as
-// required by the MPRIS2 spec.
-func (s *MPRISService) positionMicros() int64 {
-	return s.model.position.Microseconds()
-}
-
-// metadata builds the MPRIS2 Metadata map from the current model state.
+// metadataFromSnap builds the MPRIS2 Metadata map from a snapshot.
 // The xesam:artist field must be a []string per the MPRIS2 spec.
-func (s *MPRISService) metadata() map[string]dbus.Variant {
-	trackId := dbus.ObjectPath(fmt.Sprintf("/org/dirplay/track/%d", s.model.currentIndex))
+func metadataFromSnap(snap mprisStateSnapshot) map[string]dbus.Variant {
+	trackId := dbus.ObjectPath(fmt.Sprintf("/org/dirplay/track/%d", snap.currentIndex))
 
-	artist := s.model.artist
+	artist := snap.artist
 	if artist == "" {
 		artist = "Unknown Artist"
 	}
-	title := s.model.title
+	title := snap.title
 	if title == "" {
 		// Fall back to the bare filename without extension.
-		if s.model.currentIndex < len(s.model.playlist) {
-			title = basenameWithoutExt(s.model.playlist[s.model.currentIndex])
+		if snap.trackPath != "" {
+			title = basenameWithoutExt(snap.trackPath)
 		}
 	}
-	album := s.model.album
+	album := snap.album
 
 	return map[string]dbus.Variant{
 		"mpris:trackid": dbus.MakeVariant(trackId),
-		"mpris:length":  dbus.MakeVariant(s.model.duration.Microseconds()),
+		"mpris:length":  dbus.MakeVariant(snap.duration.Microseconds()),
 		"xesam:title":   dbus.MakeVariant(title),
 		"xesam:artist":  dbus.MakeVariant([]string{artist}),
 		"xesam:album":   dbus.MakeVariant(album),

@@ -27,7 +27,7 @@ func rootCmd() *cobra.Command {
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			musicDir := args[0]
-			keywords := args[1:]
+			keywords := parseKeywords(args[1:])
 			return runPlayer(musicDir, keywords, noTUI)
 		},
 	}
@@ -141,7 +141,7 @@ func runTUI(playlist []string) error {
 
 	// Create the MPRIS service before starting the program so the D-Bus name
 	// is registered before the first PropertiesChanged signal fires.
-	mpris, err := NewMPRISService(model, program)
+	mpris, err := NewMPRISService(program)
 	if err != nil {
 		// Non-fatal: log and continue without MPRIS.
 		fmt.Fprintf(os.Stderr, "MPRIS: failed to start D-Bus service: %v\n", err)
@@ -154,6 +154,36 @@ func runTUI(playlist []string) error {
 		return fmt.Errorf("error running TUI: %w", err)
 	}
 	return nil
+}
+
+// parseKeywords re-joins raw CLI keyword args and re-splits them with
+// double-quote awareness, so that a quoted phrase like "jesus jones" is
+// treated as a single search token regardless of whether the shell stripped
+// the quotes before handing args to the process.
+func parseKeywords(args []string) []string {
+	joined := strings.Join(args, " ")
+	var tokens []string
+	var cur strings.Builder
+	inQuote := false
+
+	for i := 0; i < len(joined); i++ {
+		c := joined[i]
+		switch {
+		case c == '"':
+			inQuote = !inQuote
+		case c == ' ' && !inQuote:
+			if cur.Len() > 0 {
+				tokens = append(tokens, cur.String())
+				cur.Reset()
+			}
+		default:
+			cur.WriteByte(c)
+		}
+	}
+	if cur.Len() > 0 {
+		tokens = append(tokens, cur.String())
+	}
+	return tokens
 }
 
 // scanMusicDirectory recursively scans a directory for audio files, optionally filtering by keywords.
