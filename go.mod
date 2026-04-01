@@ -6,6 +6,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
+	github.com/ebitengine/oto/v3 v3.4.0
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/gopxl/beep v1.4.1
 	github.com/hirigaray/go-listenbrainz v0.0.0-20241208212301-5487bfa2a78c
@@ -19,6 +20,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.10.1 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.13-0.20250311204145-2c3ea96c31dd // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
+	github.com/ebitengine/purego v0.9.0 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/hajimehoshi/go-mp3 v0.3.4 // indirect
 	github.com/icza/bitio v1.1.0 // indirect

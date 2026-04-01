@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -r \"//go:build\\\\|// +build\" \"C:\\\\Users\\\\darry\\\\projects\\\\dirplay\" --include=\"*.go\")",
+      "Bash(ls:*)",
+      "Bash(go get:*)",
+      "Bash(go build:*)",
+      "Bash(go mod:*)",
+      "Bash(git reset:*)"
+    ]
+  }
+}

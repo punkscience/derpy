@@ -1,3 +1,5 @@
+//go:build linux
+
 package main
 
 // mpris.go implements the MPRIS2 D-Bus interface for dirplay.
@@ -23,32 +25,6 @@ import (
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
 )
-
-// ---- MPRIS message types injected into the Bubble Tea event loop ------------
-
-// mprisPlayMsg tells the model to start/resume playback.
-type mprisPlayMsg struct{}
-
-// mprisPauseMsg tells the model to pause playback.
-type mprisPauseMsg struct{}
-
-// mprisPlayPauseMsg tells the model to toggle play/pause.
-type mprisPlayPauseMsg struct{}
-
-// mprisStopMsg tells the model to stop playback.
-type mprisStopMsg struct{}
-
-// mprisNextMsg tells the model to advance to the next track.
-type mprisNextMsg struct{}
-
-// mprisPreviousMsg tells the model to go to the previous track.
-type mprisPreviousMsg struct{}
-
-// mprisSeekMsg tells the model to seek by a relative offset.
-type mprisSeekMsg struct{ offset time.Duration }
-
-// mprisSetPositionMsg tells the model to seek to an absolute position.
-type mprisSetPositionMsg struct{ pos time.Duration }
 
 // ---- D-Bus introspection XML ------------------------------------------------
 

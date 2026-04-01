@@ -1,0 +1,130 @@
+//go:build windows
+
+package main
+
+// speaker_windows.go provides a WASAPI-backed audio output for Windows.
+// It uses github.com/ebitengine/oto/v3 which accesses WASAPI through
+// golang.org/x/sys/windows — no CGo or C compiler required.
+//
+// The public surface (speakerInit/Play/Clear/Lock/Unlock) mirrors speaker.go
+// exactly so audio.go is fully platform-agnostic.
+
+import (
+	"encoding/binary"
+	"math"
+	"sync"
+	"time"
+
+	"github.com/ebitengine/oto/v3"
+	"github.com/gopxl/beep"
+)
+
+var (
+	spkMu     sync.Mutex
+	spkBuf    [][2]float64
+	spkPlayer beep.Streamer
+	otoCtx    *oto.Context
+	otoPlayer *oto.Player
+)
+
+// beepReader implements io.Reader by pulling samples from the active
+// beep.Streamer, converting float64 stereo to interleaved float32 LE bytes.
+// When no streamer is set it outputs silence so the WASAPI stream stays open.
+type beepReader struct{}
+
+const (
+	numChannels    = 2
+	bytesPerSample = 4 // float32
+	frameBytes     = numChannels * bytesPerSample
+)
+
+func (r *beepReader) Read(out []byte) (int, error) {
+	frames := len(out) / frameBytes
+	if frames == 0 {
+		return 0, nil
+	}
+
+	spkMu.Lock()
+	// Grow the conversion buffer if needed.
+	if len(spkBuf) < frames {
+		spkBuf = make([][2]float64, frames)
+	}
+
+	filled := 0
+	if spkPlayer != nil {
+		n, ok := spkPlayer.Stream(spkBuf[:frames])
+		if !ok {
+			spkPlayer = nil
+		}
+		filled = n
+	}
+	spkMu.Unlock()
+
+	// Convert decoded float64 frames to float32 LE interleaved bytes.
+	for i := 0; i < frames; i++ {
+		var l, r float64
+		if i < filled {
+			l = math.Max(-1, math.Min(1, spkBuf[i][0]))
+			r = math.Max(-1, math.Min(1, spkBuf[i][1]))
+		}
+		binary.LittleEndian.PutUint32(out[i*frameBytes:], math.Float32bits(float32(l)))
+		binary.LittleEndian.PutUint32(out[i*frameBytes+4:], math.Float32bits(float32(r)))
+	}
+
+	return frames * frameBytes, nil
+}
+
+// speakerInit initialises the WASAPI audio context and starts a continuous
+// output stream.  Call once per application lifecycle.
+func speakerInit(sampleRate beep.SampleRate, bufferSize int) error {
+	spkBuf = make([][2]float64, bufferSize)
+
+	opts := &oto.NewContextOptions{
+		SampleRate:   int(sampleRate),
+		ChannelCount: numChannels,
+		Format:       oto.FormatFloat32LE,
+		// A larger OS-level buffer prevents underruns from scheduler jitter.
+		// 200ms is a good balance between latency and glitch-free playback.
+		BufferSize: 200 * time.Millisecond,
+	}
+
+	ctx, ready, err := oto.NewContext(opts)
+	if err != nil {
+		return err
+	}
+	// Block until the audio device is ready.
+	<-ready
+
+	otoCtx = ctx
+	otoPlayer = otoCtx.NewPlayer(&beepReader{})
+	otoPlayer.Play()
+	return nil
+}
+
+// speakerPlay sets the active streamer.  The oto read loop will begin pulling
+// samples from s on its next buffer fill.
+func speakerPlay(s beep.Streamer) {
+	spkMu.Lock()
+	defer spkMu.Unlock()
+	spkPlayer = s
+}
+
+// speakerClear removes the active streamer.  The stream stays open and
+// outputs silence until the next speakerPlay call.
+func speakerClear() {
+	spkMu.Lock()
+	defer spkMu.Unlock()
+	spkPlayer = nil
+}
+
+// speakerLock acquires the speaker mutex, preventing the oto read goroutine
+// from running.  Use for atomic state changes that must not race with sample
+// delivery (e.g. toggling pause).
+func speakerLock() {
+	spkMu.Lock()
+}
+
+// speakerUnlock releases the speaker mutex.
+func speakerUnlock() {
+	spkMu.Unlock()
+}
