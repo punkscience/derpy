@@ -20,19 +20,49 @@ func main() {
 // rootCmd builds the top-level Cobra command for dirplay.
 func rootCmd() *cobra.Command {
 	var noTUI bool
+	var source string
+	var setDefaultSource string
 
 	cmd := &cobra.Command{
-		Use:   "dirplay [--no-tui] <music_directory> [keywords...]",
+		Use:   "dirplay [--source <dir>] [--set-default-source <dir>] [keywords...]",
 		Short: "Terminal music player — shuffles and plays a directory of audio files",
-		Args:  cobra.MinimumNArgs(1),
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			musicDir := args[0]
-			keywords := parseKeywords(args[1:])
+			// Handle --set-default-source before anything else.
+			if setDefaultSource != "" {
+				cfg, err := LoadConfig()
+				if err != nil {
+					cfg = &Config{}
+				}
+				cfg.DefaultSource = setDefaultSource
+				if err := SaveConfig(cfg); err != nil {
+					return fmt.Errorf("could not save config: %w", err)
+				}
+				path, _ := configFilePath()
+				fmt.Printf("Default source set to %q in %s\n", setDefaultSource, path)
+				return nil
+			}
+
+			// Resolve the music directory: flag > config default > error.
+			musicDir := source
+			if musicDir == "" {
+				cfg, err := LoadConfig()
+				if err == nil {
+					musicDir = cfg.DefaultSource
+				}
+			}
+			if musicDir == "" {
+				return fmt.Errorf("no source directory specified — use --source <dir> or set a default with --set-default-source <dir>")
+			}
+
+			keywords := parseKeywords(args)
 			return runPlayer(musicDir, keywords, noTUI)
 		},
 	}
 
 	cmd.Flags().BoolVar(&noTUI, "no-tui", false, "Play without the terminal UI")
+	cmd.Flags().StringVar(&source, "source", "", "Directory to scan for audio files")
+	cmd.Flags().StringVar(&setDefaultSource, "set-default-source", "", "Save a default source directory to the config and exit")
 
 	// Subcommands
 	cmd.AddCommand(tokenCmd())
@@ -156,32 +186,20 @@ func runTUI(playlist []string) error {
 	return nil
 }
 
-// parseKeywords re-joins raw CLI keyword args and re-splits them with
-// double-quote awareness, so that a quoted phrase like "jesus jones" is
-// treated as a single search token regardless of whether the shell stripped
-// the quotes before handing args to the process.
+// parseKeywords returns the CLI args as search tokens. Each arg is already a
+// distinct token after shell processing (e.g. "jesus & mary chain" arrives as
+// one arg, not four). If an arg contains literal quote characters (unusual,
+// e.g. from a config file), they are stripped and the contents treated as one
+// token.
 func parseKeywords(args []string) []string {
-	joined := strings.Join(args, " ")
 	var tokens []string
-	var cur strings.Builder
-	inQuote := false
-
-	for i := 0; i < len(joined); i++ {
-		c := joined[i]
-		switch {
-		case c == '"':
-			inQuote = !inQuote
-		case c == ' ' && !inQuote:
-			if cur.Len() > 0 {
-				tokens = append(tokens, cur.String())
-				cur.Reset()
-			}
-		default:
-			cur.WriteByte(c)
+	for _, arg := range args {
+		if !strings.ContainsRune(arg, '"') {
+			tokens = append(tokens, arg)
+			continue
 		}
-	}
-	if cur.Len() > 0 {
-		tokens = append(tokens, cur.String())
+		// Strip any literal quote characters within a single arg.
+		tokens = append(tokens, strings.ReplaceAll(arg, `"`, ""))
 	}
 	return tokens
 }

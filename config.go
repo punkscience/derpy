@@ -27,6 +27,7 @@ func configFilePath() (string, error) {
 // Config holds all persisted dirplay configuration.
 type Config struct {
 	ListenBrainzToken string `json:"listenbrainz_token,omitempty"`
+	DefaultSource     string `json:"default_source,omitempty"`
 }
 
 // LoadConfig reads the config file; returns an empty Config if the file does not exist.
