@@ -28,6 +28,11 @@ func configFilePath() (string, error) {
 type Config struct {
 	ListenBrainzToken string `json:"listenbrainz_token,omitempty"`
 	DefaultSource     string `json:"default_source,omitempty"`
+	// NostrPrivateKey stores the user's Nostr private key (raw hex).
+	// Stored as hex so we are not confused about bech32 vs hex across reads.
+	// The file is written with 0o600 permissions, but users should still treat
+	// this value as a secret and never share the config file.
+	NostrPrivateKey string `json:"nostr_private_key,omitempty"`
 }
 
 // LoadConfig reads the config file; returns an empty Config if the file does not exist.
