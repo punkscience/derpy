@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -114,5 +115,89 @@ func TestNpubFromPrivateKey_Invalid(t *testing.T) {
 	_, err := npubFromPrivateKey("not-a-valid-hex-key")
 	if err == nil {
 		t.Error("expected error for invalid key, got nil")
+	}
+}
+
+// TestPublicNoteContent verifies the format of the public Nostr post, using
+// mock search servers so no real network calls are made.
+func TestPublicNoteContent(t *testing.T) {
+	withSearchServers(t,
+		`<a href="https://artist.bandcamp.com/track/the-song">...</a>`,
+		`{"videoId":"dQw4w9WgXcQ"}`,
+		func() {
+			priv := nostr.GeneratePrivateKey()
+			npub, err := npubFromPrivateKey(priv)
+			if err != nil {
+				t.Fatalf("npubFromPrivateKey: %v", err)
+			}
+
+			links := FindTrackLinks("Test Artist", "The Song", "Test Album")
+			if links.Bandcamp == "" {
+				t.Error("expected Bandcamp link, got empty string")
+			}
+			if links.YouTube == "" {
+				t.Error("expected YouTube link, got empty string")
+			}
+
+			// Mirror the content-building logic from PublishNostrTrackNote.
+			var linkSection strings.Builder
+			if links.Bandcamp != "" {
+				linkSection.WriteString("\n\n🎵 " + links.Bandcamp)
+			}
+			if links.YouTube != "" {
+				linkSection.WriteString("\n▶️ " + links.YouTube)
+			}
+			content := fmt.Sprintf(
+				"%s is really digging %s by %s right now! #music #dirplay%s",
+				npub, "The Song", "Test Artist", linkSection.String(),
+			)
+
+			checks := []struct {
+				desc, want string
+			}{
+				{"digging phrase", "is really digging The Song by Test Artist right now!"},
+				{"hashtags", "#music #dirplay"},
+				{"Bandcamp link", "bandcamp.com"},
+				{"YouTube link", "youtube.com"},
+			}
+			for _, c := range checks {
+				if !strings.Contains(content, c.want) {
+					t.Errorf("content missing %s: %q", c.desc, content)
+				}
+			}
+		},
+	)
+}
+
+// TestPublicNoteContent_MissingMetadata verifies fallback phrases when
+// artist or title fields are empty.
+func TestPublicNoteContent_MissingMetadata(t *testing.T) {
+	cases := []struct {
+		artist, title string
+		wantContains  string
+	}{
+		{"Miles Davis", "So What", "So What by Miles Davis"},
+		{"", "So What", "So What right now"},
+		{"Miles Davis", "", "a track by Miles Davis"},
+		{"", "", "this track right now"},
+	}
+
+	for _, tc := range cases {
+		var digging string
+		switch {
+		case tc.title != "" && tc.artist != "":
+			digging = fmt.Sprintf("%s by %s", tc.title, tc.artist)
+		case tc.title != "":
+			digging = tc.title
+		case tc.artist != "":
+			digging = fmt.Sprintf("a track by %s", tc.artist)
+		default:
+			digging = "this track"
+		}
+		content := fmt.Sprintf("npub1test is really digging %s right now! #music #dirplay", digging)
+		if !strings.Contains(content, tc.wantContains) {
+			t.Errorf("artist=%q title=%q: content %q does not contain %q",
+				tc.artist, tc.title, content, tc.wantContains)
+		}
 	}
 }

@@ -76,35 +76,35 @@ func PublishNostrTrackNote(privateKey, artist, title, album string) error {
 		return fmt.Errorf("could not derive public key: %w", err)
 	}
 
-	// Build a readable track description.
-	var trackDesc string
-	switch {
-	case artist != "" && album != "" && title != "":
-		trackDesc = fmt.Sprintf("%s — %s — %s", artist, album, title)
-	case artist != "" && title != "":
-		trackDesc = fmt.Sprintf("%s — %s", artist, title)
-	case title != "":
-		trackDesc = title
-	default:
-		trackDesc = "(unknown track)"
-	}
-
 	// Search Bandcamp and YouTube in parallel for listen links.
 	// This is best-effort: missing links do not block publishing.
 	links := FindTrackLinks(artist, title, album)
 
 	var linkSection strings.Builder
 	if links.Bandcamp != "" {
-		linkSection.WriteString("\n\n🎵 Bandcamp: " + links.Bandcamp)
+		linkSection.WriteString("\n\n🎵 " + links.Bandcamp)
 	}
 	if links.YouTube != "" {
-		linkSection.WriteString("\n▶️ YouTube: " + links.YouTube)
+		linkSection.WriteString("\n▶️ " + links.YouTube)
+	}
+
+	// Build the "digging X by Y" phrase, gracefully handling missing metadata.
+	var digging string
+	switch {
+	case title != "" && artist != "":
+		digging = fmt.Sprintf("%s by %s", title, artist)
+	case title != "":
+		digging = title
+	case artist != "":
+		digging = fmt.Sprintf("a track by %s", artist)
+	default:
+		digging = "this track"
 	}
 
 	content := fmt.Sprintf(
-		"%s has earmarked a track for a playlist.\n\n%s%s",
+		"%s is really digging %s right now! #music #dirplay%s",
 		npub,
-		trackDesc,
+		digging,
 		linkSection.String(),
 	)
 

@@ -31,11 +31,12 @@ type PlayerModel struct {
 	// D-Bus is unavailable or when running in --no-tui mode.
 	mpris *MPRISService
 
-	// Nostr key-entry state: when the user presses [N] and no key is configured,
-	// the TUI switches into a one-time key-entry mode.
-	nostrKeyEntry  bool   // true while waiting for the user to type their key
-	nostrKeyBuffer string // accumulates characters typed by the user
-	nostrStatus    string // last Nostr result message shown to the user
+	// Nostr key-entry state: when the user presses [N] or [P] and no key is
+	// configured, the TUI switches into a one-time key-entry mode.
+	nostrKeyEntry    bool   // true while waiting for the user to type their key
+	nostrKeyBuffer   string // accumulates characters typed by the user
+	nostrKeyForPost  bool   // true when key entry was triggered by [P] (public post) vs [N] (earmark)
+	nostrStatus      string // last Nostr result message shown to the user
 }
 
 // Messages for the TUI
@@ -51,7 +52,8 @@ type trackLoadedMsg struct {
 }
 // nostrPublishedMsg is sent after a Nostr publish attempt completes.
 type nostrPublishedMsg struct {
-	err error // nil on success
+	err    error  // nil on success
+	action string // "earmark" or "post" — drives the status display
 }
 
 type trackDeletedMsg struct {
@@ -94,10 +96,17 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.nostrKeyBuffer = ""
 				m.nostrStatus = "Nostr key entry cancelled."
 			case "enter":
-				// User submitted their key — exit entry mode, validate, save, then publish.
+				// User submitted their key — validate, save, then perform the
+				// action that triggered key entry ([N] earmark or [P] post).
 				key := m.nostrKeyBuffer
+				forPost := m.nostrKeyForPost
 				m.nostrKeyEntry = false
 				m.nostrKeyBuffer = ""
+				m.nostrKeyForPost = false
+				if forPost {
+					m.nostrStatus = "Nostr: searching for links and posting..."
+					return m, m.saveKeyAndPublish(key)
+				}
 				m.nostrStatus = "Nostr: saving earmark..."
 				return m, m.saveKeyAndAddEarmark(key)
 			case "backspace", "ctrl+h":
@@ -167,6 +176,21 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Key is available: earmark to private Nostr list.
 				m.nostrStatus = "Nostr: saving earmark..."
 				return m, m.saveEarmarkCmd(cfg.NostrPrivateKey)
+			}
+
+		case "p":
+			// Publish the current track as a public Nostr post with listen links.
+			if m.playing {
+				cfg, err := LoadConfig()
+				if err != nil || cfg.NostrPrivateKey == "" {
+					m.nostrKeyEntry = true
+					m.nostrKeyBuffer = ""
+					m.nostrKeyForPost = true
+					m.nostrStatus = ""
+					return m, nil
+				}
+				m.nostrStatus = "Nostr: searching for links and posting..."
+				return m, m.publishToNostr(cfg.NostrPrivateKey)
 			}
 
 		case "d":
@@ -319,7 +343,9 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case nostrPublishedMsg:
 		if msg.err != nil {
-			m.nostrStatus = fmt.Sprintf("Nostr: failed — %v", msg.err)
+			m.nostrStatus = fmt.Sprintf("Nostr: %s failed — %v", msg.action, msg.err)
+		} else if msg.action == "post" {
+			m.nostrStatus = "Nostr: posted!"
 		} else {
 			m.nostrStatus = "Nostr: earmark saved!"
 		}
@@ -443,7 +469,7 @@ func (m *PlayerModel) View() string {
 	}
 
 	// Controls
-	controls := "Controls: [←] Previous  [→] Next  [SPACE] Pause/Play  [N] Earmark  [D] Delete  [ESC] Quit"
+	controls := "Controls: [←] Previous  [→] Next  [SPACE] Pause/Play  [N] Earmark  [P] Post  [D] Delete  [ESC] Quit"
 	content.WriteString(controlsStyle.Render(controls))
 
 	return content.String()
@@ -501,6 +527,16 @@ func (m *PlayerModel) loadCurrentTrack() tea.Cmd {
 	}
 }
 
+// publishToNostr returns a Bubble Tea command that searches for listen links
+// and publishes a public kind-1 Nostr post about the current track.
+func (m *PlayerModel) publishToNostr(hexKey string) tea.Cmd {
+	artist, title, album := m.artist, m.title, m.album
+	return func() tea.Msg {
+		err := PublishNostrTrackNote(hexKey, artist, title, album)
+		return nostrPublishedMsg{action: "post", err: err}
+	}
+}
+
 // saveEarmarkCmd returns a Bubble Tea command that adds the current track to
 // the user's private NIP-51 earmark list on Nostr.
 func (m *PlayerModel) saveEarmarkCmd(hexKey string) tea.Cmd {
@@ -512,7 +548,34 @@ func (m *PlayerModel) saveEarmarkCmd(hexKey string) tea.Cmd {
 			Title:     title,
 			Timestamp: time.Now().Unix(),
 		})
-		return nostrPublishedMsg{err: err}
+		return nostrPublishedMsg{action: "earmark", err: err}
+	}
+}
+
+// saveKeyAndPublish validates the key the user typed inline, persists it, and
+// then publishes a public Nostr post about the current track.
+func (m *PlayerModel) saveKeyAndPublish(rawKey string) tea.Cmd {
+	artist, title, album := m.artist, m.title, m.album
+	return func() tea.Msg {
+		rawKey = strings.TrimSpace(rawKey)
+		if rawKey == "" {
+			return nostrPublishedMsg{action: "post", err: fmt.Errorf("no key entered")}
+		}
+
+		hexKey, err := resolvePrivateKey(rawKey)
+		if err != nil {
+			return nostrPublishedMsg{action: "post", err: fmt.Errorf("invalid key: %w", err)}
+		}
+
+		cfg, loadErr := LoadConfig()
+		if loadErr != nil {
+			cfg = &Config{}
+		}
+		cfg.NostrPrivateKey = hexKey
+		_ = SaveConfig(cfg)
+
+		err = PublishNostrTrackNote(hexKey, artist, title, album)
+		return nostrPublishedMsg{action: "post", err: err}
 	}
 }
 
@@ -523,21 +586,20 @@ func (m *PlayerModel) saveKeyAndAddEarmark(rawKey string) tea.Cmd {
 	return func() tea.Msg {
 		rawKey = strings.TrimSpace(rawKey)
 		if rawKey == "" {
-			return nostrPublishedMsg{err: fmt.Errorf("no key entered")}
+			return nostrPublishedMsg{action: "earmark", err: fmt.Errorf("no key entered")}
 		}
 
 		hexKey, err := resolvePrivateKey(rawKey)
 		if err != nil {
-			return nostrPublishedMsg{err: fmt.Errorf("invalid key: %w", err)}
+			return nostrPublishedMsg{action: "earmark", err: fmt.Errorf("invalid key: %w", err)}
 		}
 
-		// Persist so we don't ask again next time.
 		cfg, loadErr := LoadConfig()
 		if loadErr != nil {
 			cfg = &Config{}
 		}
 		cfg.NostrPrivateKey = hexKey
-		_ = SaveConfig(cfg) // best-effort; earmark regardless
+		_ = SaveConfig(cfg)
 
 		err = AddEarmark(hexKey, Earmark{
 			Artist:    artist,
@@ -545,7 +607,7 @@ func (m *PlayerModel) saveKeyAndAddEarmark(rawKey string) tea.Cmd {
 			Title:     title,
 			Timestamp: time.Now().Unix(),
 		})
-		return nostrPublishedMsg{err: err}
+		return nostrPublishedMsg{action: "earmark", err: err}
 	}
 }
 

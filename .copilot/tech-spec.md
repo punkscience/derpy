@@ -28,7 +28,13 @@ Example: dirplay c:\Users\me\Music
 
 ### Phase 2 (planned)
 [ ] Blossom server upload of local audio files for cross-device streaming.
-[ ] Public kind-1 broadcast option when earmarking, with Bandcamp/YouTube listen links.
+
+## Public Nostr Post ([P] key)
+
+[x] Pressing [P] while a track is playing searches Bandcamp and YouTube for listen links, then publishes a public kind-1 Nostr note.
+[x] Note format: "[npub] is really digging [title] by [artist] right now! #music #dirplay" with Bandcamp/YouTube links appended if found.
+[x] Gracefully handles missing metadata (no artist, no title, etc.).
+[x] Reuses the same inline key-entry flow as [N]; key entry triggered by [P] routes back to a public post rather than an earmark.
 
 ## ListenBrainz Integration
 
