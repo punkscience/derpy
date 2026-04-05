@@ -84,6 +84,7 @@ Matching is case-insensitive against the full file path.`,
 	cmd.AddCommand(nostrKeyCmd())
 	cmd.AddCommand(listCmd())
 	cmd.AddCommand(relayCmd())
+	cmd.AddCommand(earmarksCmd())
 
 	return cmd
 }
@@ -348,7 +349,11 @@ Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
 				default:
 					desc = "(unknown track)"
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), " %3d.  %-60s  (%s)\n", i+1, desc, ts)
+				pathInfo := ""
+			if e.Path != "" {
+				pathInfo = "\n        " + e.Path
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), " %3d.  %-60s  (%s)%s\n", i+1, desc, ts, pathInfo)
 			}
 			return nil
 		},
@@ -481,4 +486,74 @@ func relayResetCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// earmarksCmd returns the 'earmarks' subcommand that plays earmarked files
+// as a playlist.
+func earmarksCmd() *cobra.Command {
+	var noTUI bool
+
+	cmd := &cobra.Command{
+		Use:   "earmarks",
+		Short: "Play your earmarked tracks as a playlist",
+		Long: `Fetch your private Nostr earmark list and play the files as a playlist.
+
+Tracks are played in the order they were earmarked. Files that no longer exist
+on disk are skipped with a warning.
+
+Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := LoadConfig()
+			if err != nil || cfg.NostrPrivateKey == "" {
+				return fmt.Errorf("no Nostr private key configured — run: dirplay nostr-key <nsec_or_hex_key>")
+			}
+
+			fmt.Fprintln(cmd.OutOrStdout(), "Fetching earmarks from Nostr...")
+
+			earmarks, err := FetchEarmarks(cfg.NostrPrivateKey)
+			if err != nil {
+				return fmt.Errorf("could not fetch earmarks: %w", err)
+			}
+			if len(earmarks) == 0 {
+				return fmt.Errorf("no earmarks found — press [N] while a track is playing to add one")
+			}
+
+			// Build playlist from stored paths, skipping missing files.
+			var playlist []string
+			var skipped int
+			for _, e := range earmarks {
+				if e.Path == "" {
+					skipped++
+					continue
+				}
+				if _, err := os.Stat(e.Path); os.IsNotExist(err) {
+					fmt.Fprintf(cmd.ErrOrStderr(), "skipping (not found on disk): %s\n", e.Path)
+					skipped++
+					continue
+				}
+				playlist = append(playlist, e.Path)
+			}
+
+			if len(playlist) == 0 {
+				msg := "no earmarked files found on disk"
+				if skipped > 0 {
+					msg += fmt.Sprintf(" (%d earmark(s) have no recorded path or the file has moved)", skipped)
+				}
+				return fmt.Errorf("%s", msg)
+			}
+
+			if skipped > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Playing %d track(s), %d skipped.\n\n", len(playlist), skipped)
+			}
+
+			if noTUI {
+				return runNoTUI(playlist)
+			}
+			return runTUI(playlist)
+		},
+	}
+
+	cmd.Flags().BoolVar(&noTUI, "no-tui", false, "Play without the terminal UI")
+	return cmd
 }

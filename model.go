@@ -541,11 +541,13 @@ func (m *PlayerModel) publishToNostr(hexKey string) tea.Cmd {
 // the user's private NIP-51 earmark list on Nostr.
 func (m *PlayerModel) saveEarmarkCmd(hexKey string) tea.Cmd {
 	artist, title, album := m.artist, m.title, m.album
+	path := m.playlist[m.currentIndex]
 	return func() tea.Msg {
 		err := AddEarmark(hexKey, Earmark{
 			Artist:    artist,
 			Album:     album,
 			Title:     title,
+			Path:      path,
 			Timestamp: time.Now().Unix(),
 		})
 		return nostrPublishedMsg{action: "earmark", err: err}
@@ -583,6 +585,7 @@ func (m *PlayerModel) saveKeyAndPublish(rawKey string) tea.Cmd {
 // the config so they are not asked again, and then earmarks the current track.
 func (m *PlayerModel) saveKeyAndAddEarmark(rawKey string) tea.Cmd {
 	artist, title, album := m.artist, m.title, m.album
+	path := m.playlist[m.currentIndex]
 	return func() tea.Msg {
 		rawKey = strings.TrimSpace(rawKey)
 		if rawKey == "" {
@@ -605,6 +608,7 @@ func (m *PlayerModel) saveKeyAndAddEarmark(rawKey string) tea.Cmd {
 			Artist:    artist,
 			Album:     album,
 			Title:     title,
+			Path:      path,
 			Timestamp: time.Now().Unix(),
 		})
 		return nostrPublishedMsg{action: "earmark", err: err}

@@ -25,7 +25,8 @@ type Earmark struct {
 	Artist    string `json:"artist"`
 	Album     string `json:"album"`
 	Title     string `json:"title"`
-	Timestamp int64  `json:"ts"` // Unix seconds
+	Path      string `json:"path,omitempty"` // absolute path on the machine that earmarked it
+	Timestamp int64  `json:"ts"`             // Unix seconds
 }
 
 // selfConvKey derives the NIP-44 conversation key for self-encryption by using
