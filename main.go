@@ -9,6 +9,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
+
+	"dirplay/internal/filter"
 )
 
 func main() {
@@ -24,9 +26,21 @@ func rootCmd() *cobra.Command {
 	var setDefaultSource string
 
 	cmd := &cobra.Command{
-		Use:   "dirplay [--source <dir>] [--set-default-source <dir>] [keywords...]",
+		Use:   "dirplay [--source <dir>] [--set-default-source <dir>] [expression...]",
 		Short: "Terminal music player — shuffles and plays a directory of audio files",
-		Args:  cobra.ArbitraryArgs,
+		Long: `dirplay scans a directory recursively for audio files and plays them shuffled.
+
+Keyword expression syntax (AND binds tighter than OR):
+  jazz AND piano          path must contain both "jazz" and "piano"
+  jazz OR blues           path must contain "jazz" or "blues"
+  (jazz OR blues) AND piano
+  "jazz piano"            exact phrase match
+
+Multiple expression arguments are joined with OR:
+  dirplay jazz blues  →  jazz OR blues
+
+Matching is case-insensitive against the full file path.`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Handle --set-default-source before anything else.
 			if setDefaultSource != "" {
@@ -55,8 +69,9 @@ func rootCmd() *cobra.Command {
 				return fmt.Errorf("no source directory specified — use --source <dir> or set a default with --set-default-source <dir>")
 			}
 
-			keywords := parseKeywords(args)
-			return runPlayer(musicDir, keywords, noTUI)
+			// Join multiple args with OR so "jazz blues" means "jazz OR blues".
+			exprStr := strings.Join(args, " OR ")
+			return runPlayer(musicDir, exprStr, noTUI)
 		},
 	}
 
@@ -107,19 +122,20 @@ LISTENBRAINZ_TOKEN environment variable). Pass an empty string to clear it:
 	}
 }
 
-// runPlayer scans the directory, filters by keywords, shuffles (if no keywords), and starts playback.
-func runPlayer(musicDir string, keywords []string, noTUI bool) error {
+// runPlayer scans the directory, optionally filters by a keyword expression,
+// shuffles, and starts playback. exprStr may be empty to play everything.
+func runPlayer(musicDir string, exprStr string, noTUI bool) error {
 	if _, err := os.Stat(musicDir); os.IsNotExist(err) {
 		return fmt.Errorf("directory does not exist: %s", musicDir)
 	}
 
-	playlist, err := scanMusicDirectory(musicDir, keywords)
+	playlist, err := scanMusicDirectory(musicDir, exprStr)
 	if err != nil {
 		return fmt.Errorf("error scanning directory: %w", err)
 	}
 	if len(playlist) == 0 {
-		if len(keywords) > 0 {
-			return fmt.Errorf("no audio files matching %v found in directory: %s", keywords, musicDir)
+		if exprStr != "" {
+			return fmt.Errorf("no audio files matching %q found in directory: %s", exprStr, musicDir)
 		}
 		return fmt.Errorf("no audio files found in directory: %s", musicDir)
 	}
@@ -186,28 +202,11 @@ func runTUI(playlist []string) error {
 	return nil
 }
 
-// parseKeywords returns the CLI args as search tokens. Each arg is already a
-// distinct token after shell processing (e.g. "jesus & mary chain" arrives as
-// one arg, not four). If an arg contains literal quote characters (unusual,
-// e.g. from a config file), they are stripped and the contents treated as one
-// token.
-func parseKeywords(args []string) []string {
-	var tokens []string
-	for _, arg := range args {
-		if !strings.ContainsRune(arg, '"') {
-			tokens = append(tokens, arg)
-			continue
-		}
-		// Strip any literal quote characters within a single arg.
-		tokens = append(tokens, strings.ReplaceAll(arg, `"`, ""))
-	}
-	return tokens
-}
-
-// scanMusicDirectory recursively scans a directory for audio files, optionally filtering by keywords.
-func scanMusicDirectory(root string, keywords []string) ([]string, error) {
-	var playlist []string
-
+// scanMusicDirectory recursively scans root for audio files. If exprStr is
+// non-empty it is parsed as a boolean keyword expression (AND/OR/parentheses)
+// and only matching paths are returned. Matching is case-insensitive against
+// the full absolute path.
+func scanMusicDirectory(root string, exprStr string) ([]string, error) {
 	audioExts := map[string]bool{
 		".mp3":  true,
 		".wav":  true,
@@ -217,12 +216,17 @@ func scanMusicDirectory(root string, keywords []string) ([]string, error) {
 		".aac":  true,
 	}
 
-	// Prepare keywords for case-insensitive matching
-	var lowerKeywords []string
-	for _, k := range keywords {
-		lowerKeywords = append(lowerKeywords, strings.ToLower(k))
+	// Parse the expression once before the walk; fail fast on syntax errors.
+	var expr filter.Expr
+	if exprStr != "" {
+		var err error
+		expr, err = filter.ParseExpr(exprStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid keyword expression: %w", err)
+		}
 	}
 
+	var all []string
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -231,29 +235,16 @@ func scanMusicDirectory(root string, keywords []string) ([]string, error) {
 			return nil
 		}
 		if audioExts[strings.ToLower(filepath.Ext(path))] {
-			// If keywords are provided, check if any match the relative path or filename
-			if len(lowerKeywords) > 0 {
-				rel, err := filepath.Rel(root, path)
-				if err != nil {
-					rel = path
-				}
-				relLower := strings.ToLower(rel)
-
-				matched := false
-				for _, kw := range lowerKeywords {
-					if strings.Contains(relLower, kw) {
-						matched = true
-						break
-					}
-				}
-				if !matched {
-					return nil
-				}
-			}
-			playlist = append(playlist, path)
+			all = append(all, path)
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
 
-	return playlist, err
+	if expr == nil {
+		return all, nil
+	}
+	return filter.FilterExpr(all, expr), nil
 }

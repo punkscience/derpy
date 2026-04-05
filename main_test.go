@@ -40,12 +40,12 @@ func TestScanMusicDirectory(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		keywords []string
+		expr     string
 		expected []string
 	}{
 		{
-			name:     "No keywords",
-			keywords: []string{},
+			name: "No expression",
+			expr: "",
 			expected: []string{
 				filepath.Join(tmpDir, "Gospel/Jesus.mp3"),
 				filepath.Join(tmpDir, "Gospel/Oldies.wav"),
@@ -54,31 +54,50 @@ func TestScanMusicDirectory(t *testing.T) {
 			},
 		},
 		{
-			name:     "Single keyword (jesus)",
-			keywords: []string{"jesus"},
+			name: "Single term (jesus)",
+			expr: "jesus",
 			expected: []string{
 				filepath.Join(tmpDir, "Gospel/Jesus.mp3"),
 			},
 		},
 		{
-			name:     "Keyword in path (gospel)",
-			keywords: []string{"gospel"},
+			name: "Term matches directory (gospel)",
+			expr: "gospel",
 			expected: []string{
 				filepath.Join(tmpDir, "Gospel/Jesus.mp3"),
 				filepath.Join(tmpDir, "Gospel/Oldies.wav"),
 			},
 		},
 		{
-			name:     "Multiple keywords (OR logic)",
-			keywords: []string{"jesus", "pop"},
+			name: "OR expression",
+			expr: "jesus OR pop",
 			expected: []string{
 				filepath.Join(tmpDir, "Gospel/Jesus.mp3"),
 				filepath.Join(tmpDir, "Pop/Song.flac"),
 			},
 		},
 		{
-			name:     "Case-insensitive matching",
-			keywords: []string{"JESUS"},
+			name: "AND expression",
+			expr: "gospel AND jesus",
+			expected: []string{
+				filepath.Join(tmpDir, "Gospel/Jesus.mp3"),
+			},
+		},
+		{
+			name: "AND expression — no match",
+			expr: "gospel AND pop",
+			expected: nil,
+		},
+		{
+			name: "Grouped expression: (gospel OR pop) AND mp3",
+			expr: "(gospel OR pop) AND mp3",
+			expected: []string{
+				filepath.Join(tmpDir, "Gospel/Jesus.mp3"),
+			},
+		},
+		{
+			name: "Case-insensitive matching",
+			expr: "JESUS",
 			expected: []string{
 				filepath.Join(tmpDir, "Gospel/Jesus.mp3"),
 			},
@@ -87,7 +106,7 @@ func TestScanMusicDirectory(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := scanMusicDirectory(tmpDir, tt.keywords)
+			got, err := scanMusicDirectory(tmpDir, tt.expr)
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
 			}
