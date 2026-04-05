@@ -22,11 +22,12 @@ const (
 
 // Earmark represents a single earmarked track stored in the private list.
 type Earmark struct {
-	Artist    string `json:"artist"`
-	Album     string `json:"album"`
-	Title     string `json:"title"`
-	Path      string `json:"path,omitempty"` // absolute path on the machine that earmarked it
-	Timestamp int64  `json:"ts"`             // Unix seconds
+	Artist    string           `json:"artist"`
+	Album     string           `json:"album"`
+	Title     string           `json:"title"`
+	Path      string           `json:"path,omitempty"`    // absolute path on the machine that earmarked it
+	Timestamp int64            `json:"ts"`                // Unix seconds
+	Blossom   *BlossomManifest `json:"blossom,omitempty"` // set once the file has been uploaded
 }
 
 // selfConvKey derives the NIP-44 conversation key for self-encryption by using
@@ -125,6 +126,34 @@ func AddEarmark(hexPrivKey string, e Earmark) error {
 	publishCtx, publishCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer publishCancel()
 	return publishEarmarks(publishCtx, hexPrivKey, append(existing, e))
+}
+
+// UpdateEarmark fetches the current list, replaces the entry whose Timestamp
+// matches updated.Timestamp, and re-publishes. Used by the upload command to
+// attach a BlossomManifest to an existing earmark without changing its identity.
+func UpdateEarmark(hexPrivKey string, updated Earmark) error {
+	fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	existing, err := fetchEarmarksCtx(fetchCtx, hexPrivKey)
+	fetchCancel()
+	if err != nil {
+		return fmt.Errorf("could not fetch earmarks: %w", err)
+	}
+
+	found := false
+	for i, e := range existing {
+		if e.Timestamp == updated.Timestamp {
+			existing[i] = updated
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("no earmark with timestamp %d found", updated.Timestamp)
+	}
+
+	publishCtx, publishCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer publishCancel()
+	return publishEarmarks(publishCtx, hexPrivKey, existing)
 }
 
 // publishEarmarks encrypts and publishes the complete earmark slice as a

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -84,6 +85,8 @@ Matching is case-insensitive against the full file path.`,
 	cmd.AddCommand(nostrKeyCmd())
 	cmd.AddCommand(listCmd())
 	cmd.AddCommand(relayCmd())
+	cmd.AddCommand(blossomCmd())
+	cmd.AddCommand(uploadCmd())
 	cmd.AddCommand(earmarksCmd())
 
 	return cmd
@@ -488,6 +491,216 @@ func relayResetCmd() *cobra.Command {
 	}
 }
 
+// blossomCmd returns the 'blossom' subcommand group for managing Blossom servers.
+func blossomCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "blossom",
+		Short: "Manage the Blossom audio server list",
+		Long: `Manage the list of Blossom server URLs used for uploading and downloading
+encrypted audio chunks.
+
+When no servers are configured the built-in defaults are used. At least two
+servers are recommended so each chunk has redundancy.`,
+	}
+	cmd.AddCommand(blossomListCmd(), blossomAddCmd(), blossomRemoveCmd(), blossomResetCmd())
+	return cmd
+}
+
+func blossomListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "Show the active Blossom server list",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, _ := LoadConfig()
+			servers := LoadBlossomServers()
+			if len(cfg.BlossomServers) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "(using built-in defaults)")
+			}
+			for _, s := range servers {
+				fmt.Fprintln(cmd.OutOrStdout(), s)
+			}
+			return nil
+		},
+	}
+}
+
+func blossomAddCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "add <https://server.example.com>",
+		Short: "Add a Blossom server to the list",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			url := args[0]
+			if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
+				return fmt.Errorf("server URL must start with https:// or http://")
+			}
+			cfg, err := LoadConfig()
+			if err != nil {
+				cfg = &Config{}
+			}
+			if len(cfg.BlossomServers) == 0 {
+				cfg.BlossomServers = append([]string{}, defaultBlossomServers...)
+			}
+			for _, s := range cfg.BlossomServers {
+				if s == url {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s is already in the server list\n", url)
+					return nil
+				}
+			}
+			cfg.BlossomServers = append(cfg.BlossomServers, url)
+			if err := SaveConfig(cfg); err != nil {
+				return fmt.Errorf("could not save config: %w", err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Added %s\n", url)
+			return nil
+		},
+	}
+}
+
+func blossomRemoveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove <https://server.example.com>",
+		Short: "Remove a Blossom server from the list",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			url := args[0]
+			cfg, err := LoadConfig()
+			if err != nil {
+				cfg = &Config{}
+			}
+			if len(cfg.BlossomServers) == 0 {
+				cfg.BlossomServers = append([]string{}, defaultBlossomServers...)
+			}
+			filtered := cfg.BlossomServers[:0]
+			found := false
+			for _, s := range cfg.BlossomServers {
+				if s == url {
+					found = true
+				} else {
+					filtered = append(filtered, s)
+				}
+			}
+			if !found {
+				return fmt.Errorf("%s is not in the server list", url)
+			}
+			cfg.BlossomServers = filtered
+			if err := SaveConfig(cfg); err != nil {
+				return fmt.Errorf("could not save config: %w", err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Removed %s\n", url)
+			return nil
+		},
+	}
+}
+
+func blossomResetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "reset",
+		Short: "Reset the Blossom server list to built-in defaults",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := LoadConfig()
+			if err != nil {
+				cfg = &Config{}
+			}
+			cfg.BlossomServers = nil
+			if err := SaveConfig(cfg); err != nil {
+				return fmt.Errorf("could not save config: %w", err)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Blossom server list reset to defaults:")
+			for _, s := range defaultBlossomServers {
+				fmt.Fprintln(cmd.OutOrStdout(), " ", s)
+			}
+			return nil
+		},
+	}
+}
+
+// uploadCmd returns the 'upload' subcommand that encrypts and uploads an audio
+// file to Blossom servers, then attaches the manifest to the matching earmark.
+func uploadCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "upload <file>",
+		Short: "Encrypt and upload an audio file to Blossom servers",
+		Long: `Split, encrypt (AES-256-GCM), and upload an audio file to your configured
+Blossom servers. Each 16 MiB chunk is uploaded to at least two servers for
+redundancy.
+
+After a successful upload the manifest (chunk SHA-256s, server URLs, and
+encryption key) is attached to the matching earmark so the file can be
+downloaded and played on any device running dirplay with the same Nostr key.
+
+Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			filePath := args[0]
+
+			cfg, err := LoadConfig()
+			if err != nil || cfg.NostrPrivateKey == "" {
+				return fmt.Errorf("no Nostr private key configured — run: dirplay nostr-key <nsec_or_hex_key>")
+			}
+
+			// Resolve servers: kind-10063 discovery + configured list.
+			fmt.Fprintln(cmd.OutOrStdout(), "Resolving Blossom servers...")
+			servers, err := ResolveBlossomServers(cfg.NostrPrivateKey)
+			if err != nil || len(servers) == 0 {
+				servers = LoadBlossomServers()
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Uploading to: %s\n", strings.Join(servers, ", "))
+
+			// Fetch earmarks so we can attach the manifest afterwards.
+			fmt.Fprintln(cmd.OutOrStdout(), "Fetching earmarks...")
+			earmarks, _ := FetchEarmarks(cfg.NostrPrivateKey)
+
+			// Find a matching earmark by path (exact) or artist+title.
+			absPath, _ := filepath.Abs(filePath)
+			var matchIdx int = -1
+			for i, e := range earmarks {
+				if e.Path == absPath || (e.Path == "" && e.Title != "" &&
+					strings.EqualFold(filepath.Base(filePath), e.Title)) {
+					matchIdx = i
+					break
+				}
+			}
+
+			// Upload with progress.
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
+
+			total := 0 // will be set after upload (we don't know chunk count upfront)
+			manifest, err := UploadFile(ctx, cfg.NostrPrivateKey, filePath, servers,
+				func(done, _ int) {
+					total = done
+					fmt.Fprintf(cmd.OutOrStdout(), "\r  chunk %d uploaded...", done)
+				})
+			if err != nil {
+				return fmt.Errorf("upload failed: %w", err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "\r  %d chunk(s) uploaded.           \n", total)
+
+			// Attach manifest to the earmark if we found one.
+			if matchIdx >= 0 {
+				earmarks[matchIdx].Blossom = manifest
+				fmt.Fprintln(cmd.OutOrStdout(), "Attaching manifest to earmark...")
+				if err := UpdateEarmark(cfg.NostrPrivateKey, earmarks[matchIdx]); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not update earmark: %v\n", err)
+				} else {
+					fmt.Fprintln(cmd.OutOrStdout(), "Earmark updated.")
+				}
+			} else {
+				fmt.Fprintln(cmd.OutOrStdout(), "(no matching earmark found — manifest not attached)")
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "Upload complete: %d chunk(s) across %d server(s).\n",
+				len(manifest.Chunks), len(servers))
+			return nil
+		},
+	}
+}
+
 // earmarksCmd returns the 'earmarks' subcommand that plays earmarked files
 // as a playlist.
 func earmarksCmd() *cobra.Command {
@@ -519,21 +732,58 @@ Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
 				return fmt.Errorf("no earmarks found — press [E] while a track is playing to add one")
 			}
 
-			// Build playlist from stored paths, skipping missing files.
+			// Build playlist from stored paths. When a file is missing but the
+			// earmark has a Blossom manifest, download and decrypt to a temp file.
 			var playlist []string
+			var tempFiles []string // cleaned up after playback
 			var skipped int
 			for _, e := range earmarks {
-				if e.Path == "" {
+				if e.Path == "" && e.Blossom == nil {
 					skipped++
 					continue
 				}
-				if _, err := os.Stat(e.Path); os.IsNotExist(err) {
-					fmt.Fprintf(cmd.ErrOrStderr(), "skipping (not found on disk): %s\n", e.Path)
-					skipped++
+
+				// File exists on disk — use it directly.
+				if e.Path != "" {
+					if _, err := os.Stat(e.Path); err == nil {
+						playlist = append(playlist, e.Path)
+						continue
+					}
+				}
+
+				// File missing — try Blossom download.
+				if e.Blossom != nil {
+					desc := e.Title
+					if desc == "" {
+						desc = filepath.Base(e.Path)
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "Downloading: %s\n", desc)
+					dlCtx, dlCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+					tmpPath, err := DownloadAndReassemble(dlCtx, e.Blossom,
+						func(done, total int) {
+							fmt.Fprintf(cmd.OutOrStdout(), "\r  chunk %d/%d...", done, total)
+						})
+					dlCancel()
+					if err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "\nskipping (download failed): %s — %v\n", desc, err)
+						skipped++
+						continue
+					}
+					fmt.Fprintln(cmd.OutOrStdout(), "\r  download complete.           ")
+					playlist = append(playlist, tmpPath)
+					tempFiles = append(tempFiles, tmpPath)
 					continue
 				}
-				playlist = append(playlist, e.Path)
+
+				fmt.Fprintf(cmd.ErrOrStderr(), "skipping (not found on disk): %s\n", e.Path)
+				skipped++
 			}
+			// Ensure temp files are removed when playback ends.
+			defer func() {
+				for _, f := range tempFiles {
+					os.Remove(f)
+				}
+			}()
 
 			if len(playlist) == 0 {
 				msg := "no earmarked files found on disk"
