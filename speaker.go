@@ -1,3 +1,5 @@
+//go:build linux
+
 package main
 
 // speaker.go provides a PulseAudio-based audio output backend.
