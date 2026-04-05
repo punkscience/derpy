@@ -134,7 +134,7 @@ func nostrKeyCmd() *cobra.Command {
 		Long: `Save your Nostr private key to ~/.config/dirplay/config.json.
 
 The key is used to sign and publish track-earmark notes to public Nostr relays
-when you press [N] while a track is playing.
+when you press [E] while a track is playing.
 
 You can pass either a bech32-encoded nsec key (nsec1...) or a raw 64-character
 hex string.  The key is stored as hex internally.
@@ -175,7 +175,7 @@ Pass an empty string to clear the saved key:
 			}
 			path, _ := configFilePath()
 			fmt.Printf("Nostr private key saved to %s\n", path)
-			fmt.Println("Press [N] in dirplay to earmark the current track on Nostr.")
+			fmt.Println("Press [E] in dirplay to earmark the current track on Nostr.")
 			return nil
 		},
 	}
@@ -331,7 +331,7 @@ Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
 			}
 
 			if len(earmarks) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No earmarks found. Press [N] while a track is playing to add one.")
+				fmt.Fprintln(cmd.OutOrStdout(), "No earmarks found. Press [E] while a track is playing to add one.")
 				return nil
 			}
 
@@ -516,7 +516,7 @@ Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
 				return fmt.Errorf("could not fetch earmarks: %w", err)
 			}
 			if len(earmarks) == 0 {
-				return fmt.Errorf("no earmarks found — press [N] while a track is playing to add one")
+				return fmt.Errorf("no earmarks found — press [E] while a track is playing to add one")
 			}
 
 			// Build playlist from stored paths, skipping missing files.
