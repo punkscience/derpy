@@ -118,55 +118,70 @@ func TestNpubFromPrivateKey_Invalid(t *testing.T) {
 	}
 }
 
-// TestPublicNoteContent verifies the format of the public Nostr post, using
-// mock search servers so no real network calls are made.
-func TestPublicNoteContent(t *testing.T) {
+// TestPublicNoteContent_BandcampPreferred verifies that when Bandcamp returns a
+// result the post contains only the Bandcamp link (YouTube is not queried).
+func TestPublicNoteContent_BandcampPreferred(t *testing.T) {
 	withSearchServers(t,
 		`<a href="https://artist.bandcamp.com/track/the-song">...</a>`,
-		`{"videoId":"dQw4w9WgXcQ"}`,
+		`{"videoId":"dQw4w9WgXcQ"}`, // YouTube server is up but should not be used
 		func() {
+			link := FindBestLink("Test Artist", "The Song", "")
+			if link == "" {
+				t.Fatal("expected a link, got empty string")
+			}
+			if !strings.Contains(link, "bandcamp.com") {
+				t.Errorf("expected Bandcamp link, got %q", link)
+			}
+			if strings.Contains(link, "youtube.com") {
+				t.Errorf("YouTube link should not appear when Bandcamp found, got %q", link)
+			}
+
 			priv := nostr.GeneratePrivateKey()
-			npub, err := npubFromPrivateKey(priv)
-			if err != nil {
-				t.Fatalf("npubFromPrivateKey: %v", err)
-			}
-
-			links := FindTrackLinks("Test Artist", "The Song", "Test Album")
-			if links.Bandcamp == "" {
-				t.Error("expected Bandcamp link, got empty string")
-			}
-			if links.YouTube == "" {
-				t.Error("expected YouTube link, got empty string")
-			}
-
-			// Mirror the content-building logic from PublishNostrTrackNote.
-			var linkSection strings.Builder
-			if links.Bandcamp != "" {
-				linkSection.WriteString("\n\n🎵 " + links.Bandcamp)
-			}
-			if links.YouTube != "" {
-				linkSection.WriteString("\n▶️ " + links.YouTube)
-			}
+			npub, _ := npubFromPrivateKey(priv)
 			content := fmt.Sprintf(
-				"%s is really digging %s by %s right now! #music #dirplay%s",
-				npub, "The Song", "Test Artist", linkSection.String(),
+				"%s is really digging %s by %s right now! #music #dirplay\n\n%s",
+				npub, "The Song", "Test Artist", link,
 			)
-
-			checks := []struct {
-				desc, want string
-			}{
-				{"digging phrase", "is really digging The Song by Test Artist right now!"},
-				{"hashtags", "#music #dirplay"},
-				{"Bandcamp link", "bandcamp.com"},
-				{"YouTube link", "youtube.com"},
-			}
-			for _, c := range checks {
-				if !strings.Contains(content, c.want) {
-					t.Errorf("content missing %s: %q", c.desc, content)
+			for _, want := range []string{
+				"is really digging The Song by Test Artist right now!",
+				"#music #dirplay",
+				"bandcamp.com",
+			} {
+				if !strings.Contains(content, want) {
+					t.Errorf("content missing %q: %s", want, content)
 				}
 			}
 		},
 	)
+}
+
+// TestPublicNoteContent_YouTubeFallback verifies that YouTube is used when
+// Bandcamp returns nothing.
+func TestPublicNoteContent_YouTubeFallback(t *testing.T) {
+	withSearchServers(t,
+		"<html>no results</html>", // Bandcamp finds nothing
+		`{"videoId":"dQw4w9WgXcQ"}`,
+		func() {
+			link := FindBestLink("Test Artist", "The Song", "")
+			if link == "" {
+				t.Fatal("expected a YouTube fallback link, got empty string")
+			}
+			if !strings.Contains(link, "youtube.com") {
+				t.Errorf("expected YouTube link as fallback, got %q", link)
+			}
+		},
+	)
+}
+
+// TestPublicNoteContent_NoLinks verifies that when neither source finds a
+// result the post is still valid (no link appended).
+func TestPublicNoteContent_NoLinks(t *testing.T) {
+	withSearchServers(t, "<html>nothing</html>", "<html>nothing</html>", func() {
+		link := FindBestLink("Ghost Artist", "Ghost Track", "")
+		if link != "" {
+			t.Errorf("expected empty link, got %q", link)
+		}
+	})
 }
 
 // TestPublicNoteContent_MissingMetadata verifies fallback phrases when

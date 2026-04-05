@@ -150,16 +150,12 @@ func PublishNostrTrackNote(privateKey, artist, title, album string) error {
 		return fmt.Errorf("could not derive public key: %w", err)
 	}
 
-	// Search Bandcamp and YouTube in parallel for listen links.
-	// This is best-effort: missing links do not block publishing.
-	links := FindTrackLinks(artist, title, album)
-
-	var linkSection strings.Builder
-	if links.Bandcamp != "" {
-		linkSection.WriteString("\n\n🎵 " + links.Bandcamp)
-	}
-	if links.YouTube != "" {
-		linkSection.WriteString("\n▶️ " + links.YouTube)
+	// Search for a single listen link: Bandcamp preferred, YouTube as fallback.
+	// This is best-effort — a missing link does not block publishing.
+	link := FindBestLink(artist, title, album)
+	var linkSection string
+	if link != "" {
+		linkSection = "\n\n" + link
 	}
 
 	// Build the "digging X by Y" phrase, gracefully handling missing metadata.
@@ -179,7 +175,7 @@ func PublishNostrTrackNote(privateKey, artist, title, album string) error {
 		"%s is really digging %s right now! #music #dirplay%s",
 		npub,
 		digging,
-		linkSection.String(),
+		linkSection,
 	)
 
 	ev := nostr.Event{

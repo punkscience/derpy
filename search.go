@@ -38,6 +38,16 @@ type SearchLinks struct {
 	YouTube  string // empty if not found
 }
 
+// FindBestLink searches for a single listen link to embed in a public post.
+// Bandcamp is tried first; YouTube is only queried if Bandcamp returns nothing.
+// Returns an empty string if neither source finds a match.
+func FindBestLink(artist, title, _ string) string {
+	if bc := searchBandcamp(artist, title); bc != "" {
+		return bc
+	}
+	return searchYouTube(artist, title)
+}
+
 // FindTrackLinks searches Bandcamp and YouTube for the track in parallel
 // and returns whatever URLs were found within the shared HTTP timeout.
 // Errors are silently swallowed — callers treat an empty string as "not found".
