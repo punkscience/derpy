@@ -83,6 +83,8 @@ Matching is case-insensitive against the full file path.`,
 	cmd.AddCommand(tokenCmd())
 	cmd.AddCommand(nostrKeyCmd())
 	cmd.AddCommand(listCmd())
+	cmd.AddCommand(relayCmd())
+	cmd.AddCommand(earmarksCmd())
 
 	return cmd
 }
@@ -347,9 +349,211 @@ Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
 				default:
 					desc = "(unknown track)"
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), " %3d.  %-60s  (%s)\n", i+1, desc, ts)
+				pathInfo := ""
+			if e.Path != "" {
+				pathInfo = "\n        " + e.Path
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), " %3d.  %-60s  (%s)%s\n", i+1, desc, ts, pathInfo)
 			}
 			return nil
 		},
 	}
+}
+
+// relayCmd returns the 'relay' subcommand group for managing Nostr relays.
+func relayCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "relay",
+		Short: "Manage the Nostr relay list",
+		Long: `Manage the list of Nostr relay WebSocket URLs that dirplay publishes to
+and fetches from.
+
+When no relays are configured the built-in defaults are used. Adding even one
+relay that you know accepts your pubkey is usually enough.`,
+	}
+	cmd.AddCommand(relayListCmd(), relayAddCmd(), relayRemoveCmd(), relayResetCmd())
+	return cmd
+}
+
+func relayListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "Show the active relay list",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, _ := LoadConfig()
+			relays := LoadNostrRelays()
+			if len(cfg.NostrRelays) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "(using built-in defaults)")
+			}
+			for _, r := range relays {
+				fmt.Fprintln(cmd.OutOrStdout(), r)
+			}
+			return nil
+		},
+	}
+}
+
+func relayAddCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "add <wss://relay.example.com>",
+		Short: "Add a relay to the list",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			url := args[0]
+			if !strings.HasPrefix(url, "wss://") && !strings.HasPrefix(url, "ws://") {
+				return fmt.Errorf("relay URL must start with wss:// or ws://")
+			}
+			cfg, err := LoadConfig()
+			if err != nil {
+				cfg = &Config{}
+			}
+			// Start from defaults if this is the first custom relay.
+			if len(cfg.NostrRelays) == 0 {
+				cfg.NostrRelays = append([]string{}, defaultNostrRelays...)
+			}
+			for _, r := range cfg.NostrRelays {
+				if r == url {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s is already in the relay list\n", url)
+					return nil
+				}
+			}
+			cfg.NostrRelays = append(cfg.NostrRelays, url)
+			if err := SaveConfig(cfg); err != nil {
+				return fmt.Errorf("could not save config: %w", err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Added %s\n", url)
+			return nil
+		},
+	}
+}
+
+func relayRemoveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove <wss://relay.example.com>",
+		Short: "Remove a relay from the list",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			url := args[0]
+			cfg, err := LoadConfig()
+			if err != nil {
+				cfg = &Config{}
+			}
+			// Operate on defaults if nothing custom is saved yet.
+			if len(cfg.NostrRelays) == 0 {
+				cfg.NostrRelays = append([]string{}, defaultNostrRelays...)
+			}
+			filtered := cfg.NostrRelays[:0]
+			found := false
+			for _, r := range cfg.NostrRelays {
+				if r == url {
+					found = true
+				} else {
+					filtered = append(filtered, r)
+				}
+			}
+			if !found {
+				return fmt.Errorf("%s is not in the relay list", url)
+			}
+			cfg.NostrRelays = filtered
+			if err := SaveConfig(cfg); err != nil {
+				return fmt.Errorf("could not save config: %w", err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Removed %s\n", url)
+			return nil
+		},
+	}
+}
+
+func relayResetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "reset",
+		Short: "Reset the relay list to built-in defaults",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := LoadConfig()
+			if err != nil {
+				cfg = &Config{}
+			}
+			cfg.NostrRelays = nil // nil → LoadNostrRelays() returns defaults
+			if err := SaveConfig(cfg); err != nil {
+				return fmt.Errorf("could not save config: %w", err)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Relay list reset to defaults:")
+			for _, r := range defaultNostrRelays {
+				fmt.Fprintln(cmd.OutOrStdout(), " ", r)
+			}
+			return nil
+		},
+	}
+}
+
+// earmarksCmd returns the 'earmarks' subcommand that plays earmarked files
+// as a playlist.
+func earmarksCmd() *cobra.Command {
+	var noTUI bool
+
+	cmd := &cobra.Command{
+		Use:   "earmarks",
+		Short: "Play your earmarked tracks as a playlist",
+		Long: `Fetch your private Nostr earmark list and play the files as a playlist.
+
+Tracks are played in the order they were earmarked. Files that no longer exist
+on disk are skipped with a warning.
+
+Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := LoadConfig()
+			if err != nil || cfg.NostrPrivateKey == "" {
+				return fmt.Errorf("no Nostr private key configured — run: dirplay nostr-key <nsec_or_hex_key>")
+			}
+
+			fmt.Fprintln(cmd.OutOrStdout(), "Fetching earmarks from Nostr...")
+
+			earmarks, err := FetchEarmarks(cfg.NostrPrivateKey)
+			if err != nil {
+				return fmt.Errorf("could not fetch earmarks: %w", err)
+			}
+			if len(earmarks) == 0 {
+				return fmt.Errorf("no earmarks found — press [N] while a track is playing to add one")
+			}
+
+			// Build playlist from stored paths, skipping missing files.
+			var playlist []string
+			var skipped int
+			for _, e := range earmarks {
+				if e.Path == "" {
+					skipped++
+					continue
+				}
+				if _, err := os.Stat(e.Path); os.IsNotExist(err) {
+					fmt.Fprintf(cmd.ErrOrStderr(), "skipping (not found on disk): %s\n", e.Path)
+					skipped++
+					continue
+				}
+				playlist = append(playlist, e.Path)
+			}
+
+			if len(playlist) == 0 {
+				msg := "no earmarked files found on disk"
+				if skipped > 0 {
+					msg += fmt.Sprintf(" (%d earmark(s) have no recorded path or the file has moved)", skipped)
+				}
+				return fmt.Errorf("%s", msg)
+			}
+
+			if skipped > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Playing %d track(s), %d skipped.\n\n", len(playlist), skipped)
+			}
+
+			if noTUI {
+				return runNoTUI(playlist)
+			}
+			return runTUI(playlist)
+		},
+	}
+
+	cmd.Flags().BoolVar(&noTUI, "no-tui", false, "Play without the terminal UI")
+	return cmd
 }

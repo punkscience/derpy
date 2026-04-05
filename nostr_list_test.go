@@ -13,9 +13,9 @@ import (
 // marshal → unmarshal cycle without data loss.
 func TestEarmarkJSONRoundTrip(t *testing.T) {
 	original := []Earmark{
-		{Artist: "Miles Davis", Album: "Kind of Blue", Title: "So What", Timestamp: 1700000000},
-		{Artist: "Bill Evans", Album: "Waltz for Debby", Title: "My Foolish Heart", Timestamp: 1700000001},
-		{Artist: "", Album: "", Title: "Unknown", Timestamp: 0},
+		{Artist: "Miles Davis", Album: "Kind of Blue", Title: "So What", Path: "/music/miles/so-what.flac", Timestamp: 1700000000},
+		{Artist: "Bill Evans", Album: "Waltz for Debby", Title: "My Foolish Heart", Path: "/music/bill/foolish.flac", Timestamp: 1700000001},
+		{Artist: "", Album: "", Title: "Unknown", Path: "", Timestamp: 0},
 	}
 
 	data, err := json.Marshal(original)

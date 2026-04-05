@@ -25,7 +25,8 @@ type Earmark struct {
 	Artist    string `json:"artist"`
 	Album     string `json:"album"`
 	Title     string `json:"title"`
-	Timestamp int64  `json:"ts"` // Unix seconds
+	Path      string `json:"path,omitempty"` // absolute path on the machine that earmarked it
+	Timestamp int64  `json:"ts"`             // Unix seconds
 }
 
 // selfConvKey derives the NIP-44 conversation key for self-encryption by using
@@ -53,8 +54,8 @@ func FetchEarmarks(hexPrivKey string) ([]Earmark, error) {
 	return fetchEarmarksCtx(ctx, hexPrivKey)
 }
 
-// fetchEarmarksCtx is the context-aware inner implementation used by both
-// FetchEarmarks and AddEarmark (which needs to pass its own timeout context).
+// fetchEarmarksCtx is the context-aware inner implementation shared by
+// FetchEarmarks and AddEarmark.
 func fetchEarmarksCtx(ctx context.Context, hexPrivKey string) ([]Earmark, error) {
 	pubHex, err := nostr.GetPublicKey(hexPrivKey)
 	if err != nil {
@@ -73,24 +74,8 @@ func fetchEarmarksCtx(ctx context.Context, hexPrivKey string) ([]Earmark, error)
 		Limit:   1,
 	}
 
-	// Query all relays and keep the most recently created event, since different
-	// relays may have different versions if a sync was interrupted.
-	var latest *nostr.Event
-	for _, relayURL := range defaultNostrRelays {
-		relay, err := nostr.RelayConnect(ctx, relayURL)
-		if err != nil {
-			continue
-		}
-		events, err := relay.QuerySync(ctx, filter)
-		relay.Close()
-		if err != nil || len(events) == 0 {
-			continue
-		}
-		if latest == nil || events[0].CreatedAt > latest.CreatedAt {
-			latest = events[0]
-		}
-	}
-
+	// Query all relays concurrently; keep the most recently created event.
+	latest := queryRelays(ctx, LoadNostrRelays(), filter)
 	if latest == nil {
 		return []Earmark{}, nil
 	}
@@ -110,17 +95,16 @@ func fetchEarmarksCtx(ctx context.Context, hexPrivKey string) ([]Earmark, error)
 // AddEarmark fetches the current list, appends the new entry, and re-publishes
 // the encrypted event. Because kind-30001 is addressable, relays automatically
 // replace the previous version (same pubkey + kind + "d" tag).
+// Fetch and publish use independent timeouts so a slow fetch does not consume
+// the publish budget.
 func AddEarmark(hexPrivKey string, e Earmark) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
+	fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	existing, _ := fetchEarmarksCtx(fetchCtx, hexPrivKey) // start fresh on error
+	fetchCancel()
 
-	existing, err := fetchEarmarksCtx(ctx, hexPrivKey)
-	if err != nil {
-		// Start fresh rather than block the user if the read fails.
-		existing = []Earmark{}
-	}
-
-	return publishEarmarks(ctx, hexPrivKey, append(existing, e))
+	publishCtx, publishCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer publishCancel()
+	return publishEarmarks(publishCtx, hexPrivKey, append(existing, e))
 }
 
 // publishEarmarks encrypts and publishes the complete earmark slice as a
@@ -159,24 +143,5 @@ func publishEarmarks(ctx context.Context, hexPrivKey string, earmarks []Earmark)
 		return fmt.Errorf("could not sign earmark event: %w", err)
 	}
 
-	published := 0
-	var lastErr error
-	for _, relayURL := range defaultNostrRelays {
-		relay, err := nostr.RelayConnect(ctx, relayURL)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if err := relay.Publish(ctx, ev); err != nil {
-			lastErr = err
-		} else {
-			published++
-		}
-		relay.Close()
-	}
-
-	if published == 0 {
-		return fmt.Errorf("failed to publish earmark list to any relay: %w", lastErr)
-	}
-	return nil
+	return publishToRelays(ctx, LoadNostrRelays(), ev)
 }

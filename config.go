@@ -33,6 +33,19 @@ type Config struct {
 	// The file is written with 0o600 permissions, but users should still treat
 	// this value as a secret and never share the config file.
 	NostrPrivateKey string `json:"nostr_private_key,omitempty"`
+	// NostrRelays is the list of relay WebSocket URLs dirplay publishes to and
+	// fetches from. When empty, defaultNostrRelays in nostr.go is used.
+	NostrRelays []string `json:"nostr_relays,omitempty"`
+}
+
+// LoadNostrRelays returns the user-configured relay list, falling back to
+// defaultNostrRelays when none have been configured.
+func LoadNostrRelays() []string {
+	cfg, err := LoadConfig()
+	if err == nil && len(cfg.NostrRelays) > 0 {
+		return cfg.NostrRelays
+	}
+	return defaultNostrRelays
 }
 
 // LoadConfig reads the config file; returns an empty Config if the file does not exist.

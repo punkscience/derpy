@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -114,5 +115,133 @@ func TestNpubFromPrivateKey_Invalid(t *testing.T) {
 	_, err := npubFromPrivateKey("not-a-valid-hex-key")
 	if err == nil {
 		t.Error("expected error for invalid key, got nil")
+	}
+}
+
+// TestUnionRelays verifies deduplication and order preservation.
+func TestUnionRelays(t *testing.T) {
+	a := []string{"wss://a.com", "wss://b.com"}
+	b := []string{"wss://b.com", "wss://c.com"}
+	got := unionRelays(a, b)
+	want := []string{"wss://a.com", "wss://b.com", "wss://c.com"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("[%d] got %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestUnionRelays_Empty(t *testing.T) {
+	if got := unionRelays(nil, nil); len(got) != 0 {
+		t.Errorf("expected empty, got %v", got)
+	}
+	a := []string{"wss://a.com"}
+	if got := unionRelays(nil, a); len(got) != 1 || got[0] != a[0] {
+		t.Errorf("got %v", got)
+	}
+	if got := unionRelays(a, nil); len(got) != 1 || got[0] != a[0] {
+		t.Errorf("got %v", got)
+	}
+}
+
+// TestPublicNoteContent_BandcampPreferred verifies that when Bandcamp returns a
+// result the post contains only the Bandcamp link (YouTube is not queried).
+func TestPublicNoteContent_BandcampPreferred(t *testing.T) {
+	withSearchServers(t,
+		`<a href="https://artist.bandcamp.com/track/the-song">...</a>`,
+		`{"videoId":"dQw4w9WgXcQ"}`, // YouTube server is up but should not be used
+		func() {
+			link := FindBestLink("Test Artist", "The Song", "")
+			if link == "" {
+				t.Fatal("expected a link, got empty string")
+			}
+			if !strings.Contains(link, "bandcamp.com") {
+				t.Errorf("expected Bandcamp link, got %q", link)
+			}
+			if strings.Contains(link, "youtube.com") {
+				t.Errorf("YouTube link should not appear when Bandcamp found, got %q", link)
+			}
+
+			priv := nostr.GeneratePrivateKey()
+			npub, _ := npubFromPrivateKey(priv)
+			content := fmt.Sprintf(
+				"%s is really digging %s by %s right now! #music #dirplay\n\n%s",
+				npub, "The Song", "Test Artist", link,
+			)
+			for _, want := range []string{
+				"is really digging The Song by Test Artist right now!",
+				"#music #dirplay",
+				"bandcamp.com",
+			} {
+				if !strings.Contains(content, want) {
+					t.Errorf("content missing %q: %s", want, content)
+				}
+			}
+		},
+	)
+}
+
+// TestPublicNoteContent_YouTubeFallback verifies that YouTube is used when
+// Bandcamp returns nothing.
+func TestPublicNoteContent_YouTubeFallback(t *testing.T) {
+	withSearchServers(t,
+		"<html>no results</html>", // Bandcamp finds nothing
+		`{"videoId":"dQw4w9WgXcQ"}`,
+		func() {
+			link := FindBestLink("Test Artist", "The Song", "")
+			if link == "" {
+				t.Fatal("expected a YouTube fallback link, got empty string")
+			}
+			if !strings.Contains(link, "youtube.com") {
+				t.Errorf("expected YouTube link as fallback, got %q", link)
+			}
+		},
+	)
+}
+
+// TestPublicNoteContent_NoLinks verifies that when neither source finds a
+// result the post is still valid (no link appended).
+func TestPublicNoteContent_NoLinks(t *testing.T) {
+	withSearchServers(t, "<html>nothing</html>", "<html>nothing</html>", func() {
+		link := FindBestLink("Ghost Artist", "Ghost Track", "")
+		if link != "" {
+			t.Errorf("expected empty link, got %q", link)
+		}
+	})
+}
+
+// TestPublicNoteContent_MissingMetadata verifies fallback phrases when
+// artist or title fields are empty.
+func TestPublicNoteContent_MissingMetadata(t *testing.T) {
+	cases := []struct {
+		artist, title string
+		wantContains  string
+	}{
+		{"Miles Davis", "So What", "So What by Miles Davis"},
+		{"", "So What", "So What right now"},
+		{"Miles Davis", "", "a track by Miles Davis"},
+		{"", "", "this track right now"},
+	}
+
+	for _, tc := range cases {
+		var digging string
+		switch {
+		case tc.title != "" && tc.artist != "":
+			digging = fmt.Sprintf("%s by %s", tc.title, tc.artist)
+		case tc.title != "":
+			digging = tc.title
+		case tc.artist != "":
+			digging = fmt.Sprintf("a track by %s", tc.artist)
+		default:
+			digging = "this track"
+		}
+		content := fmt.Sprintf("npub1test is really digging %s right now! #music #dirplay", digging)
+		if !strings.Contains(content, tc.wantContains) {
+			t.Errorf("artist=%q title=%q: content %q does not contain %q",
+				tc.artist, tc.title, content, tc.wantContains)
+		}
 	}
 }

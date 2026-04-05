@@ -10,13 +10,87 @@ import (
 	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
-// defaultNostrRelays is the list of well-known public relays dirplay publishes to.
-// Notes are sent to all of them; success requires at least one to accept.
+// defaultNostrRelays is the fallback relay list used when the user has not
+// configured any relays via 'dirplay relay add'.
+// relay.damus.io and nos.lol are generally open for writes.
+// relay.nostr.band is primarily a read/indexer relay — useful for fetches.
 var defaultNostrRelays = []string{
 	"wss://relay.damus.io",
 	"wss://nos.lol",
-	"wss://relay.nostr.band",
+	"wss://relay.primal.net",
 	"wss://nostr.wine",
+}
+
+// publishToRelays connects to all relays concurrently and publishes ev to each.
+// Returns nil if at least one relay accepted the event.
+func publishToRelays(ctx context.Context, relays []string, ev nostr.Event) error {
+	type result struct{ err error }
+	ch := make(chan result, len(relays))
+
+	for _, u := range relays {
+		u := u
+		go func() {
+			relay, err := nostr.RelayConnect(ctx, u)
+			if err != nil {
+				ch <- result{err}
+				return
+			}
+			defer relay.Close()
+			ch <- result{relay.Publish(ctx, ev)}
+		}()
+	}
+
+	published := 0
+	var lastErr error
+	for range relays {
+		r := <-ch
+		if r.err != nil {
+			lastErr = r.err
+		} else {
+			published++
+		}
+	}
+
+	if published == 0 {
+		if lastErr != nil {
+			return fmt.Errorf("failed to publish to any relay: %w", lastErr)
+		}
+		return fmt.Errorf("failed to publish to any relay")
+	}
+	return nil
+}
+
+// queryRelays queries all relays concurrently and returns the most recently
+// created event matching the filter, or nil if none is found.
+func queryRelays(ctx context.Context, relays []string, filter nostr.Filter) *nostr.Event {
+	ch := make(chan *nostr.Event, len(relays))
+
+	for _, u := range relays {
+		u := u
+		go func() {
+			relay, err := nostr.RelayConnect(ctx, u)
+			if err != nil {
+				ch <- nil
+				return
+			}
+			evs, err := relay.QuerySync(ctx, filter)
+			relay.Close()
+			if err != nil || len(evs) == 0 {
+				ch <- nil
+				return
+			}
+			ch <- evs[0]
+		}()
+	}
+
+	var latest *nostr.Event
+	for range relays {
+		ev := <-ch
+		if ev != nil && (latest == nil || ev.CreatedAt > latest.CreatedAt) {
+			latest = ev
+		}
+	}
+	return latest
 }
 
 // resolvePrivateKey accepts either a bech32 nsec1... string or a raw 64-char
@@ -56,6 +130,47 @@ func npubFromPrivateKey(hexPrivKey string) (string, error) {
 	return npub, nil
 }
 
+// fetchUserWriteRelays fetches the user's NIP-65 relay list (kind 10002) and
+// returns the URLs they have marked as write (or read+write) relays.
+// Returns nil when no relay list event is found so callers can fall back.
+func fetchUserWriteRelays(ctx context.Context, pubHex string) []string {
+	filter := nostr.Filter{
+		Kinds:   []int{10002},
+		Authors: []string{pubHex},
+		Limit:   1,
+	}
+	ev := queryRelays(ctx, LoadNostrRelays(), filter)
+	if ev == nil {
+		return nil
+	}
+	var relays []string
+	for _, tag := range ev.Tags {
+		// NIP-65 relay tag: ["r", "wss://...", ("read"|"write")?]
+		// No third element means both read and write.
+		if len(tag) < 2 || tag[0] != "r" {
+			continue
+		}
+		if len(tag) == 2 || tag[2] == "write" {
+			relays = append(relays, tag[1])
+		}
+	}
+	return relays
+}
+
+// unionRelays returns a deduplicated slice containing all URLs from a and b,
+// preserving order (a's entries appear first).
+func unionRelays(a, b []string) []string {
+	seen := make(map[string]struct{}, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, r := range append(a, b...) {
+		if _, ok := seen[r]; !ok {
+			seen[r] = struct{}{}
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // PublishNostrTrackNote signs and publishes a kind-1 Nostr text note
 // earmarking the given track. privateKey may be an nsec1... bech32 string or
 // a raw hex string.  The function returns an error only if no relay accepted
@@ -76,36 +191,32 @@ func PublishNostrTrackNote(privateKey, artist, title, album string) error {
 		return fmt.Errorf("could not derive public key: %w", err)
 	}
 
-	// Build a readable track description.
-	var trackDesc string
+	// Search for a single listen link: Bandcamp preferred, YouTube as fallback.
+	// This is best-effort — a missing link does not block publishing.
+	link := FindBestLink(artist, title, album)
+	var linkSection string
+	if link != "" {
+		linkSection = "\n\n" + link
+	}
+
+	// Build the "digging X by Y" phrase, gracefully handling missing metadata.
+	var digging string
 	switch {
-	case artist != "" && album != "" && title != "":
-		trackDesc = fmt.Sprintf("%s — %s — %s", artist, album, title)
-	case artist != "" && title != "":
-		trackDesc = fmt.Sprintf("%s — %s", artist, title)
+	case title != "" && artist != "":
+		digging = fmt.Sprintf("%s by %s", title, artist)
 	case title != "":
-		trackDesc = title
+		digging = title
+	case artist != "":
+		digging = fmt.Sprintf("a track by %s", artist)
 	default:
-		trackDesc = "(unknown track)"
-	}
-
-	// Search Bandcamp and YouTube in parallel for listen links.
-	// This is best-effort: missing links do not block publishing.
-	links := FindTrackLinks(artist, title, album)
-
-	var linkSection strings.Builder
-	if links.Bandcamp != "" {
-		linkSection.WriteString("\n\n🎵 Bandcamp: " + links.Bandcamp)
-	}
-	if links.YouTube != "" {
-		linkSection.WriteString("\n▶️ YouTube: " + links.YouTube)
+		digging = "this track"
 	}
 
 	content := fmt.Sprintf(
-		"%s has earmarked a track for a playlist.\n\n%s%s",
+		"%s is really digging %s right now! #music #dirplay%s",
 		npub,
-		trackDesc,
-		linkSection.String(),
+		digging,
+		linkSection,
 	)
 
 	ev := nostr.Event{
@@ -119,28 +230,17 @@ func PublishNostrTrackNote(privateKey, artist, title, album string) error {
 		return fmt.Errorf("could not sign Nostr event: %w", err)
 	}
 
-	// Publish to all relays; require at least one success.
+	// Resolve target relays: the user's NIP-65 write relays (so the event
+	// appears on their Nostr profile) unioned with the configured relay list.
+	// NIP-65 lookup gets its own short timeout so a slow relay doesn't eat into
+	// the publish budget.
+	nip65Ctx, nip65Cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	userRelays := fetchUserWriteRelays(nip65Ctx, pubHex)
+	nip65Cancel()
+
+	relays := unionRelays(userRelays, LoadNostrRelays())
+
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-
-	published := 0
-	var lastErr error
-	for _, url := range defaultNostrRelays {
-		relay, err := nostr.RelayConnect(ctx, url)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if err := relay.Publish(ctx, ev); err != nil {
-			lastErr = err
-		} else {
-			published++
-		}
-		relay.Close()
-	}
-
-	if published == 0 {
-		return fmt.Errorf("failed to publish to any Nostr relay: %w", lastErr)
-	}
-	return nil
+	return publishToRelays(ctx, relays, ev)
 }
