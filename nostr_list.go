@@ -92,15 +92,35 @@ func fetchEarmarksCtx(ctx context.Context, hexPrivKey string) ([]Earmark, error)
 	return earmarks, nil
 }
 
-// AddEarmark fetches the current list, appends the new entry, and re-publishes
-// the encrypted event. Because kind-30001 is addressable, relays automatically
-// replace the previous version (same pubkey + kind + "d" tag).
+// isDuplicateEarmark reports whether e is already represented in existing.
+// Path is the primary key. When Path is empty (e.g. older earmarks that
+// predate path storage) the Artist+Album+Title triple is used as a fallback.
+func isDuplicateEarmark(existing []Earmark, e Earmark) bool {
+	for _, x := range existing {
+		if e.Path != "" && x.Path == e.Path {
+			return true
+		}
+		if e.Path == "" && x.Artist == e.Artist && x.Album == e.Album && x.Title == e.Title {
+			return true
+		}
+	}
+	return false
+}
+
+// AddEarmark fetches the current list, appends the new entry if it is not
+// already present, and re-publishes the encrypted event. Because kind-30001
+// is addressable, relays automatically replace the previous version (same
+// pubkey + kind + "d" tag).
 // Fetch and publish use independent timeouts so a slow fetch does not consume
 // the publish budget.
 func AddEarmark(hexPrivKey string, e Earmark) error {
 	fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	existing, _ := fetchEarmarksCtx(fetchCtx, hexPrivKey) // start fresh on error
 	fetchCancel()
+
+	if isDuplicateEarmark(existing, e) {
+		return nil // already earmarked — nothing to do
+	}
 
 	publishCtx, publishCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer publishCancel()
