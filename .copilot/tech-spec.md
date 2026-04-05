@@ -18,12 +18,17 @@ Example: dirplay c:\Users\me\Music
 
 ## Nostr Integration
 
-[x] Pressing [N] while a track is playing saves it to ~/track-notes.md and publishes a kind-1 Nostr note.
-[x] The note includes the artist, album, and track name.
-[x] Before publishing, dirplay searches Bandcamp (by track) and YouTube in parallel and appends any found listen links to the note.
+[x] Pressing [N] while a track is playing earmarks the track to a private NIP-51 list on Nostr (kind 30001, NIP-44 encrypted — only the key holder can read it).
+[x] The earmark list syncs across any device sharing the same Nostr key; `dirplay list` fetches and prints it anywhere.
+[x] Earmarks include artist, album, title, and timestamp; stored as NIP-44 ciphertext so relays see only encrypted blobs.
 [x] The user's Nostr private key (nsec1... or raw hex) can be stored via `dirplay nostr-key <key>` and is persisted in ~/.config/dirplay/config.json (0600 permissions).
-[x] If no key is configured when [N] is pressed, the TUI prompts for inline key entry (masked input); the key is saved for future use after the first publish.
-[x] Notes are published to: relay.damus.io, nos.lol, relay.nostr.band, nostr.wine — at least one must succeed.
+[x] If no key is configured when [N] is pressed, the TUI prompts for inline key entry (masked input); the key is saved for future use after the first earmark.
+[x] Earmarks are published to: relay.damus.io, nos.lol, relay.nostr.band, nostr.wine — at least one must succeed.
+[x] nostr.go + search.go retained for future public broadcast / Bandcamp+YouTube link feature (phase 2).
+
+### Phase 2 (planned)
+[ ] Blossom server upload of local audio files for cross-device streaming.
+[ ] Public kind-1 broadcast option when earmarking, with Bandcamp/YouTube listen links.
 
 ## ListenBrainz Integration
 

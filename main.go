@@ -82,6 +82,7 @@ Matching is case-insensitive against the full file path.`,
 	// Subcommands
 	cmd.AddCommand(tokenCmd())
 	cmd.AddCommand(nostrKeyCmd())
+	cmd.AddCommand(listCmd())
 
 	return cmd
 }
@@ -303,4 +304,52 @@ func scanMusicDirectory(root string, exprStr string) ([]string, error) {
 		return all, nil
 	}
 	return filter.FilterExpr(all, expr), nil
+}
+
+// listCmd returns the 'list' subcommand that prints the private earmark list.
+func listCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "Print your private Nostr earmark list",
+		Long: `Fetch and decrypt your private earmark list from Nostr relays.
+
+Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := LoadConfig()
+			if err != nil || cfg.NostrPrivateKey == "" {
+				return fmt.Errorf("no Nostr private key configured — run: dirplay nostr-key <nsec_or_hex_key>")
+			}
+
+			fmt.Fprintln(cmd.OutOrStdout(), "Fetching earmarks from Nostr...")
+
+			earmarks, err := FetchEarmarks(cfg.NostrPrivateKey)
+			if err != nil {
+				return fmt.Errorf("could not fetch earmarks: %w", err)
+			}
+
+			if len(earmarks) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "No earmarks found. Press [N] while a track is playing to add one.")
+				return nil
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "\n%d earmark(s):\n\n", len(earmarks))
+			for i, e := range earmarks {
+				ts := time.Unix(e.Timestamp, 0).Format("2006-01-02 15:04")
+				var desc string
+				switch {
+				case e.Artist != "" && e.Album != "" && e.Title != "":
+					desc = fmt.Sprintf("%s — %s — %s", e.Artist, e.Album, e.Title)
+				case e.Artist != "" && e.Title != "":
+					desc = fmt.Sprintf("%s — %s", e.Artist, e.Title)
+				case e.Title != "":
+					desc = e.Title
+				default:
+					desc = "(unknown track)"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), " %3d.  %-60s  (%s)\n", i+1, desc, ts)
+			}
+			return nil
+		},
+	}
 }

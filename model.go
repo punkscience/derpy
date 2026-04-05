@@ -49,11 +49,6 @@ type trackLoadedMsg struct {
 	title    string
 	album    string
 }
-type noteSavedMsg struct {
-	success bool
-	error   string
-}
-
 // nostrPublishedMsg is sent after a Nostr publish attempt completes.
 type nostrPublishedMsg struct {
 	err error // nil on success
@@ -103,8 +98,8 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				key := m.nostrKeyBuffer
 				m.nostrKeyEntry = false
 				m.nostrKeyBuffer = ""
-				m.nostrStatus = "Nostr: searching for links and publishing..."
-				return m, tea.Batch(m.saveTrackNote(), m.saveNostrKeyAndPublish(key))
+				m.nostrStatus = "Nostr: saving earmark..."
+				return m, m.saveKeyAndAddEarmark(key)
 			case "backspace", "ctrl+h":
 				if len(m.nostrKeyBuffer) > 0 {
 					m.nostrKeyBuffer = m.nostrKeyBuffer[:len(m.nostrKeyBuffer)-1]
@@ -159,7 +154,7 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadCurrentTrack()
 
 		case "n":
-			// Save current track to the local notes file and publish to Nostr.
+			// Add the current track to the private Nostr earmark list.
 			if m.playing {
 				cfg, err := LoadConfig()
 				if err != nil || cfg.NostrPrivateKey == "" {
@@ -169,9 +164,9 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.nostrStatus = ""
 					return m, nil
 				}
-				// Key is available: save locally, search for links, and publish.
-				m.nostrStatus = "Nostr: searching for links and publishing..."
-				return m, tea.Batch(m.saveTrackNote(), m.publishToNostr(cfg.NostrPrivateKey))
+				// Key is available: earmark to private Nostr list.
+				m.nostrStatus = "Nostr: saving earmark..."
+				return m, m.saveEarmarkCmd(cfg.NostrPrivateKey)
 			}
 
 		case "d":
@@ -322,15 +317,11 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.loadCurrentTrack()
 
-	case noteSavedMsg:
-		// Local file save is silent; Nostr status is handled separately.
-		return m, nil
-
 	case nostrPublishedMsg:
 		if msg.err != nil {
 			m.nostrStatus = fmt.Sprintf("Nostr: failed — %v", msg.err)
 		} else {
-			m.nostrStatus = "Nostr: note published!"
+			m.nostrStatus = "Nostr: earmark saved!"
 		}
 		return m, nil
 
@@ -452,7 +443,7 @@ func (m *PlayerModel) View() string {
 	}
 
 	// Controls
-	controls := "Controls: [←] Previous  [→] Next  [SPACE] Pause/Play  [N] Note  [D] Delete  [ESC] Quit"
+	controls := "Controls: [←] Previous  [→] Next  [SPACE] Pause/Play  [N] Earmark  [D] Delete  [ESC] Quit"
 	content.WriteString(controlsStyle.Render(controls))
 
 	return content.String()
@@ -510,52 +501,51 @@ func (m *PlayerModel) loadCurrentTrack() tea.Cmd {
 	}
 }
 
-// saveTrackNote saves the current track information to track-notes.md
-func (m *PlayerModel) saveTrackNote() tea.Cmd {
+// saveEarmarkCmd returns a Bubble Tea command that adds the current track to
+// the user's private NIP-51 earmark list on Nostr.
+func (m *PlayerModel) saveEarmarkCmd(hexKey string) tea.Cmd {
+	artist, title, album := m.artist, m.title, m.album
 	return func() tea.Msg {
-		// Get user's home directory
-		homeDir, err := os.UserHomeDir()
+		err := AddEarmark(hexKey, Earmark{
+			Artist:    artist,
+			Album:     album,
+			Title:     title,
+			Timestamp: time.Now().Unix(),
+		})
+		return nostrPublishedMsg{err: err}
+	}
+}
+
+// saveKeyAndAddEarmark validates the key the user typed inline, persists it to
+// the config so they are not asked again, and then earmarks the current track.
+func (m *PlayerModel) saveKeyAndAddEarmark(rawKey string) tea.Cmd {
+	artist, title, album := m.artist, m.title, m.album
+	return func() tea.Msg {
+		rawKey = strings.TrimSpace(rawKey)
+		if rawKey == "" {
+			return nostrPublishedMsg{err: fmt.Errorf("no key entered")}
+		}
+
+		hexKey, err := resolvePrivateKey(rawKey)
 		if err != nil {
-			return noteSavedMsg{success: false, error: "Could not find home directory"}
+			return nostrPublishedMsg{err: fmt.Errorf("invalid key: %w", err)}
 		}
 
-		notesFile := filepath.Join(homeDir, "track-notes.md")
-
-		// Create the note entry in the format: [ ] Artist - Album - Track
-		noteEntry := fmt.Sprintf("[ ] %s - %s - %s\n", m.artist, m.album, m.title)
-
-		// Check if file exists
-		_, err = os.Stat(notesFile)
-		fileExists := !os.IsNotExist(err)
-
-		var file *os.File
-		if fileExists {
-			// Open file for appending
-			file, err = os.OpenFile(notesFile, os.O_APPEND|os.O_WRONLY, 0644)
-		} else {
-			// Create new file with header
-			file, err = os.Create(notesFile)
-			if err != nil {
-				return noteSavedMsg{success: false, error: "Could not create notes file"}
-			}
-			// Write header first
-			if _, err := file.WriteString("# DirPlay Track Notes\n"); err != nil {
-				file.Close()
-				return noteSavedMsg{success: false, error: "Could not write header to notes file"}
-			}
+		// Persist so we don't ask again next time.
+		cfg, loadErr := LoadConfig()
+		if loadErr != nil {
+			cfg = &Config{}
 		}
+		cfg.NostrPrivateKey = hexKey
+		_ = SaveConfig(cfg) // best-effort; earmark regardless
 
-		if err != nil {
-			return noteSavedMsg{success: false, error: "Could not open notes file"}
-		}
-		defer file.Close()
-
-		// Write the note entry
-		if _, err := file.WriteString(noteEntry); err != nil {
-			return noteSavedMsg{success: false, error: "Could not write to notes file"}
-		}
-
-		return noteSavedMsg{success: true}
+		err = AddEarmark(hexKey, Earmark{
+			Artist:    artist,
+			Album:     album,
+			Title:     title,
+			Timestamp: time.Now().Unix(),
+		})
+		return nostrPublishedMsg{err: err}
 	}
 }
 
@@ -583,46 +573,6 @@ func (m *PlayerModel) deleteCurrentTrack() tea.Cmd {
 			return trackDeletedMsg{err: fmt.Errorf("delete failed: %w", err)}
 		}
 		return trackDeletedMsg{}
-	}
-}
-
-// publishToNostr returns a Bubble Tea command that publishes the current track
-// as a Nostr earmark note using the given private key (already validated hex).
-func (m *PlayerModel) publishToNostr(hexKey string) tea.Cmd {
-	artist, title, album := m.artist, m.title, m.album
-	return func() tea.Msg {
-		err := PublishNostrTrackNote(hexKey, artist, title, album)
-		return nostrPublishedMsg{err: err}
-	}
-}
-
-// saveNostrKeyAndPublish validates the key the user typed, persists it to the
-// config, exits key-entry mode, and then publishes the current track note.
-func (m *PlayerModel) saveNostrKeyAndPublish(rawKey string) tea.Cmd {
-	artist, title, album := m.artist, m.title, m.album
-	return func() tea.Msg {
-		rawKey = strings.TrimSpace(rawKey)
-		if rawKey == "" {
-			return nostrPublishedMsg{err: fmt.Errorf("no key entered")}
-		}
-
-		// Validate and normalise to hex.
-		hexKey, err := resolvePrivateKey(rawKey)
-		if err != nil {
-			return nostrPublishedMsg{err: fmt.Errorf("invalid key: %w", err)}
-		}
-
-		// Persist so we don't ask again next time.
-		cfg, loadErr := LoadConfig()
-		if loadErr != nil {
-			cfg = &Config{}
-		}
-		cfg.NostrPrivateKey = hexKey
-		_ = SaveConfig(cfg) // best-effort; publish regardless
-
-		// Publish.
-		err = PublishNostrTrackNote(hexKey, artist, title, album)
-		return nostrPublishedMsg{err: err}
 	}
 }
 
