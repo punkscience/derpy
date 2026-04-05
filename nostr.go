@@ -10,13 +10,87 @@ import (
 	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
-// defaultNostrRelays is the list of well-known public relays dirplay publishes to.
-// Notes are sent to all of them; success requires at least one to accept.
+// defaultNostrRelays is the fallback relay list used when the user has not
+// configured any relays via 'dirplay relay add'.
+// relay.damus.io and nos.lol are generally open for writes.
+// relay.nostr.band is primarily a read/indexer relay — useful for fetches.
 var defaultNostrRelays = []string{
 	"wss://relay.damus.io",
 	"wss://nos.lol",
-	"wss://relay.nostr.band",
+	"wss://relay.primal.net",
 	"wss://nostr.wine",
+}
+
+// publishToRelays connects to all relays concurrently and publishes ev to each.
+// Returns nil if at least one relay accepted the event.
+func publishToRelays(ctx context.Context, relays []string, ev nostr.Event) error {
+	type result struct{ err error }
+	ch := make(chan result, len(relays))
+
+	for _, u := range relays {
+		u := u
+		go func() {
+			relay, err := nostr.RelayConnect(ctx, u)
+			if err != nil {
+				ch <- result{err}
+				return
+			}
+			defer relay.Close()
+			ch <- result{relay.Publish(ctx, ev)}
+		}()
+	}
+
+	published := 0
+	var lastErr error
+	for range relays {
+		r := <-ch
+		if r.err != nil {
+			lastErr = r.err
+		} else {
+			published++
+		}
+	}
+
+	if published == 0 {
+		if lastErr != nil {
+			return fmt.Errorf("failed to publish to any relay: %w", lastErr)
+		}
+		return fmt.Errorf("failed to publish to any relay")
+	}
+	return nil
+}
+
+// queryRelays queries all relays concurrently and returns the most recently
+// created event matching the filter, or nil if none is found.
+func queryRelays(ctx context.Context, relays []string, filter nostr.Filter) *nostr.Event {
+	ch := make(chan *nostr.Event, len(relays))
+
+	for _, u := range relays {
+		u := u
+		go func() {
+			relay, err := nostr.RelayConnect(ctx, u)
+			if err != nil {
+				ch <- nil
+				return
+			}
+			evs, err := relay.QuerySync(ctx, filter)
+			relay.Close()
+			if err != nil || len(evs) == 0 {
+				ch <- nil
+				return
+			}
+			ch <- evs[0]
+		}()
+	}
+
+	var latest *nostr.Event
+	for range relays {
+		ev := <-ch
+		if ev != nil && (latest == nil || ev.CreatedAt > latest.CreatedAt) {
+			latest = ev
+		}
+	}
+	return latest
 }
 
 // resolvePrivateKey accepts either a bech32 nsec1... string or a raw 64-char
@@ -119,28 +193,7 @@ func PublishNostrTrackNote(privateKey, artist, title, album string) error {
 		return fmt.Errorf("could not sign Nostr event: %w", err)
 	}
 
-	// Publish to all relays; require at least one success.
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-
-	published := 0
-	var lastErr error
-	for _, url := range defaultNostrRelays {
-		relay, err := nostr.RelayConnect(ctx, url)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if err := relay.Publish(ctx, ev); err != nil {
-			lastErr = err
-		} else {
-			published++
-		}
-		relay.Close()
-	}
-
-	if published == 0 {
-		return fmt.Errorf("failed to publish to any Nostr relay: %w", lastErr)
-	}
-	return nil
+	return publishToRelays(ctx, LoadNostrRelays(), ev)
 }
