@@ -30,6 +30,12 @@ type PlayerModel struct {
 	// mpris is the optional MPRIS2 D-Bus service.  It is nil when the session
 	// D-Bus is unavailable or when running in --no-tui mode.
 	mpris *MPRISService
+
+	// Nostr key-entry state: when the user presses [N] and no key is configured,
+	// the TUI switches into a one-time key-entry mode.
+	nostrKeyEntry  bool   // true while waiting for the user to type their key
+	nostrKeyBuffer string // accumulates characters typed by the user
+	nostrStatus    string // last Nostr result message shown to the user
 }
 
 // Messages for the TUI
@@ -47,6 +53,12 @@ type noteSavedMsg struct {
 	success bool
 	error   string
 }
+
+// nostrPublishedMsg is sent after a Nostr publish attempt completes.
+type nostrPublishedMsg struct {
+	err error // nil on success
+}
+
 type trackDeletedMsg struct {
 	err error
 }
@@ -78,6 +90,34 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case tea.KeyMsg:
+		// While in Nostr key-entry mode, consume all keystrokes for input.
+		if m.nostrKeyEntry {
+			switch msg.String() {
+			case "esc":
+				// Cancel key entry without saving.
+				m.nostrKeyEntry = false
+				m.nostrKeyBuffer = ""
+				m.nostrStatus = "Nostr key entry cancelled."
+			case "enter":
+				// User submitted their key — exit entry mode, validate, save, then publish.
+				key := m.nostrKeyBuffer
+				m.nostrKeyEntry = false
+				m.nostrKeyBuffer = ""
+				m.nostrStatus = "Nostr: searching for links and publishing..."
+				return m, tea.Batch(m.saveTrackNote(), m.saveNostrKeyAndPublish(key))
+			case "backspace", "ctrl+h":
+				if len(m.nostrKeyBuffer) > 0 {
+					m.nostrKeyBuffer = m.nostrKeyBuffer[:len(m.nostrKeyBuffer)-1]
+				}
+			default:
+				// Append printable characters only (ignore control sequences).
+				if len(msg.Runes) == 1 {
+					m.nostrKeyBuffer += string(msg.Runes)
+				}
+			}
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "q", "esc", "ctrl+c":
 			m.player.Close()
@@ -119,9 +159,19 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadCurrentTrack()
 
 		case "n":
-			// Save current track to notes
+			// Save current track to the local notes file and publish to Nostr.
 			if m.playing {
-				return m, m.saveTrackNote()
+				cfg, err := LoadConfig()
+				if err != nil || cfg.NostrPrivateKey == "" {
+					// No key configured — enter inline key-entry mode.
+					m.nostrKeyEntry = true
+					m.nostrKeyBuffer = ""
+					m.nostrStatus = ""
+					return m, nil
+				}
+				// Key is available: save locally, search for links, and publish.
+				m.nostrStatus = "Nostr: searching for links and publishing..."
+				return m, tea.Batch(m.saveTrackNote(), m.publishToNostr(cfg.NostrPrivateKey))
 			}
 
 		case "d":
@@ -273,8 +323,15 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadCurrentTrack()
 
 	case noteSavedMsg:
-		// Handle note saving feedback (could show a brief message)
-		// For now, we'll just ignore it as the save happens silently
+		// Local file save is silent; Nostr status is handled separately.
+		return m, nil
+
+	case nostrPublishedMsg:
+		if msg.err != nil {
+			m.nostrStatus = fmt.Sprintf("Nostr: failed — %v", msg.err)
+		} else {
+			m.nostrStatus = "Nostr: note published!"
+		}
 		return m, nil
 
 	case playErrorMsg:
@@ -372,6 +429,27 @@ func (m *PlayerModel) View() string {
 	timeDisplay := fmt.Sprintf("%s / %s", posStr, durStr)
 	content.WriteString(statusStyle.Render(timeDisplay))
 	content.WriteString("\n")
+
+	// Nostr key-entry overlay: shown instead of controls while waiting for input.
+	if m.nostrKeyEntry {
+		promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).MarginTop(1)
+		// Mask the typed key with asterisks for security.
+		masked := strings.Repeat("*", len(m.nostrKeyBuffer))
+		content.WriteString("\n")
+		content.WriteString(promptStyle.Render("Nostr private key required."))
+		content.WriteString("\n")
+		content.WriteString(promptStyle.Render("Paste your nsec1... or hex key, then press ENTER (ESC to cancel):"))
+		content.WriteString("\n")
+		content.WriteString(promptStyle.Render(fmt.Sprintf("> %s", masked)))
+		return content.String()
+	}
+
+	// Nostr status (last publish result).
+	if m.nostrStatus != "" {
+		nostrStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#A8D8A8")).MarginTop(1)
+		content.WriteString(nostrStyle.Render(m.nostrStatus))
+		content.WriteString("\n")
+	}
 
 	// Controls
 	controls := "Controls: [←] Previous  [→] Next  [SPACE] Pause/Play  [N] Note  [D] Delete  [ESC] Quit"
@@ -505,6 +583,46 @@ func (m *PlayerModel) deleteCurrentTrack() tea.Cmd {
 			return trackDeletedMsg{err: fmt.Errorf("delete failed: %w", err)}
 		}
 		return trackDeletedMsg{}
+	}
+}
+
+// publishToNostr returns a Bubble Tea command that publishes the current track
+// as a Nostr earmark note using the given private key (already validated hex).
+func (m *PlayerModel) publishToNostr(hexKey string) tea.Cmd {
+	artist, title, album := m.artist, m.title, m.album
+	return func() tea.Msg {
+		err := PublishNostrTrackNote(hexKey, artist, title, album)
+		return nostrPublishedMsg{err: err}
+	}
+}
+
+// saveNostrKeyAndPublish validates the key the user typed, persists it to the
+// config, exits key-entry mode, and then publishes the current track note.
+func (m *PlayerModel) saveNostrKeyAndPublish(rawKey string) tea.Cmd {
+	artist, title, album := m.artist, m.title, m.album
+	return func() tea.Msg {
+		rawKey = strings.TrimSpace(rawKey)
+		if rawKey == "" {
+			return nostrPublishedMsg{err: fmt.Errorf("no key entered")}
+		}
+
+		// Validate and normalise to hex.
+		hexKey, err := resolvePrivateKey(rawKey)
+		if err != nil {
+			return nostrPublishedMsg{err: fmt.Errorf("invalid key: %w", err)}
+		}
+
+		// Persist so we don't ask again next time.
+		cfg, loadErr := LoadConfig()
+		if loadErr != nil {
+			cfg = &Config{}
+		}
+		cfg.NostrPrivateKey = hexKey
+		_ = SaveConfig(cfg) // best-effort; publish regardless
+
+		// Publish.
+		err = PublishNostrTrackNote(hexKey, artist, title, album)
+		return nostrPublishedMsg{err: err}
 	}
 }
 

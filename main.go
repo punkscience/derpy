@@ -81,6 +81,7 @@ Matching is case-insensitive against the full file path.`,
 
 	// Subcommands
 	cmd.AddCommand(tokenCmd())
+	cmd.AddCommand(nostrKeyCmd())
 
 	return cmd
 }
@@ -117,6 +118,61 @@ LISTENBRAINZ_TOKEN environment variable). Pass an empty string to clear it:
 				path, _ := configFilePath()
 				fmt.Printf("ListenBrainz token saved to %s\n", path)
 			}
+			return nil
+		},
+	}
+}
+
+// nostrKeyCmd returns the 'nostr-key' subcommand that stores a Nostr private key.
+func nostrKeyCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "nostr-key <nsec_or_hex_key>",
+		Short: "Save a Nostr private key to the config file",
+		Long: `Save your Nostr private key to ~/.config/dirplay/config.json.
+
+The key is used to sign and publish track-earmark notes to public Nostr relays
+when you press [N] while a track is playing.
+
+You can pass either a bech32-encoded nsec key (nsec1...) or a raw 64-character
+hex string.  The key is stored as hex internally.
+
+IMPORTANT: Your private key is a secret — anyone who has it can post as you.
+The config file is stored with 0600 permissions, but treat it like a password.
+
+Pass an empty string to clear the saved key:
+
+  dirplay nostr-key ""`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			rawInput := args[0]
+
+			cfg, err := LoadConfig()
+			if err != nil {
+				cfg = &Config{}
+			}
+
+			if rawInput == "" {
+				cfg.NostrPrivateKey = ""
+				if err := SaveConfig(cfg); err != nil {
+					return fmt.Errorf("could not save config: %w", err)
+				}
+				fmt.Println("Nostr private key cleared.")
+				return nil
+			}
+
+			// Validate and normalise to hex before storing.
+			hexKey, err := resolvePrivateKey(rawInput)
+			if err != nil {
+				return fmt.Errorf("invalid key: %w", err)
+			}
+
+			cfg.NostrPrivateKey = hexKey
+			if err := SaveConfig(cfg); err != nil {
+				return fmt.Errorf("could not save config: %w", err)
+			}
+			path, _ := configFilePath()
+			fmt.Printf("Nostr private key saved to %s\n", path)
+			fmt.Println("Press [N] in dirplay to earmark the current track on Nostr.")
 			return nil
 		},
 	}
