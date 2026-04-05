@@ -118,6 +118,35 @@ func TestNpubFromPrivateKey_Invalid(t *testing.T) {
 	}
 }
 
+// TestUnionRelays verifies deduplication and order preservation.
+func TestUnionRelays(t *testing.T) {
+	a := []string{"wss://a.com", "wss://b.com"}
+	b := []string{"wss://b.com", "wss://c.com"}
+	got := unionRelays(a, b)
+	want := []string{"wss://a.com", "wss://b.com", "wss://c.com"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("[%d] got %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestUnionRelays_Empty(t *testing.T) {
+	if got := unionRelays(nil, nil); len(got) != 0 {
+		t.Errorf("expected empty, got %v", got)
+	}
+	a := []string{"wss://a.com"}
+	if got := unionRelays(nil, a); len(got) != 1 || got[0] != a[0] {
+		t.Errorf("got %v", got)
+	}
+	if got := unionRelays(a, nil); len(got) != 1 || got[0] != a[0] {
+		t.Errorf("got %v", got)
+	}
+}
+
 // TestPublicNoteContent_BandcampPreferred verifies that when Bandcamp returns a
 // result the post contains only the Bandcamp link (YouTube is not queried).
 func TestPublicNoteContent_BandcampPreferred(t *testing.T) {
