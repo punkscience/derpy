@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,6 +38,10 @@ type PlayerModel struct {
 	nostrKeyBuffer   string // accumulates characters typed by the user
 	nostrKeyForPost  bool   // true when key entry was triggered by [P] (public post) vs [E] (earmark)
 	nostrStatus      string // last Nostr result message shown to the user
+
+	// pendingBlossom is set by saveEarmarkCmd when the earmark succeeds so
+	// the nostrPublishedMsg handler can kick off the background Blossom upload.
+	pendingBlossom *pendingBlossomUpload
 }
 
 // Messages for the TUI
@@ -61,6 +66,18 @@ type nostrPublishedMsg struct {
 // queueFlushedMsg is sent after a background queue-flush attempt completes.
 type queueFlushedMsg struct {
 	count int // number of earmarks successfully published from the queue
+}
+
+// blossomUploadMsg is sent when the background Blossom upload finishes.
+type blossomUploadMsg struct {
+	err error
+}
+
+// pendingBlossomUpload holds the data needed for the background upload that
+// starts after a successful earmark.
+type pendingBlossomUpload struct {
+	hexKey  string
+	earmark Earmark
 }
 
 type trackDeletedMsg struct {
@@ -355,14 +372,28 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case nostrPublishedMsg:
 		if msg.err != nil {
 			m.nostrStatus = fmt.Sprintf("Nostr: %s failed — %v", msg.action, msg.err)
+			m.pendingBlossom = nil // discard pending upload on earmark failure
 		} else if msg.action == "post" {
 			m.nostrStatus = "Nostr: posted!"
 		} else if msg.duplicate {
 			m.nostrStatus = "Nostr: already earmarked"
+			m.pendingBlossom = nil
 		} else if msg.queued {
+			// Offline: earmark is queued locally; skip Blossom upload until synced.
 			m.nostrStatus = "Nostr: earmark queued (offline — will sync later)"
+			m.pendingBlossom = nil
 		} else {
-			m.nostrStatus = "Nostr: earmark saved!"
+			// Earmark published — kick off Blossom upload in background.
+			m.nostrStatus = "Nostr: earmark saved! Uploading to Blossom..."
+			return m, m.blossomUploadCmd()
+		}
+		return m, nil
+
+	case blossomUploadMsg:
+		if msg.err != nil {
+			m.nostrStatus = fmt.Sprintf("Blossom: upload failed — %v", msg.err)
+		} else {
+			m.nostrStatus = "Blossom: upload complete!"
 		}
 		return m, nil
 
@@ -561,20 +592,24 @@ func (m *PlayerModel) publishToNostr(hexKey string) tea.Cmd {
 // saveEarmarkCmd returns a Bubble Tea command that earmarks the current track.
 // The earmark is written to the local offline queue immediately (guarantees no
 // data loss), then a Nostr publish is attempted. On success the entry is
-// removed from the queue. If offline, the entry stays in the queue and will be
-// published the next time the app starts with connectivity.
+// removed from the queue and m.pendingBlossom is set so the caller can kick
+// off the background Blossom upload. If offline, the entry stays in the queue.
 func (m *PlayerModel) saveEarmarkCmd(hexKey string) tea.Cmd {
 	artist, title, album := m.artist, m.title, m.album
 	path := m.playlist[m.currentIndex]
-	return func() tea.Msg {
-		e := Earmark{
-			Artist:    artist,
-			Album:     album,
-			Title:     title,
-			Path:      path,
-			Timestamp: time.Now().Unix(),
-		}
+	e := Earmark{
+		Artist:    artist,
+		Album:     album,
+		Title:     title,
+		Path:      path,
+		Timestamp: time.Now().Unix(),
+	}
 
+	// Prime the pending upload so that if the earmark succeeds the
+	// nostrPublishedMsg handler can immediately fire blossomUploadCmd.
+	m.pendingBlossom = &pendingBlossomUpload{hexKey: hexKey, earmark: e}
+
+	return func() tea.Msg {
 		// Step 1: check for a local duplicate before touching the network.
 		existing, _ := LoadQueue()
 		if isDuplicateEarmark(existing, e) {
@@ -597,6 +632,40 @@ func (m *PlayerModel) saveEarmarkCmd(hexKey string) tea.Cmd {
 		// Step 4: published successfully — remove from outbox.
 		_ = RemoveFromQueue(e)
 		return nostrPublishedMsg{action: "earmark"}
+	}
+}
+
+// blossomUploadCmd returns a Bubble Tea command that uploads the pending
+// earmark's audio file to Blossom servers in the background, then calls
+// UpdateEarmark to attach the manifest to the Nostr earmark.
+func (m *PlayerModel) blossomUploadCmd() tea.Cmd {
+	if m.pendingBlossom == nil {
+		return nil
+	}
+	pending := *m.pendingBlossom
+	m.pendingBlossom = nil
+
+	return func() tea.Msg {
+		servers, err := ResolveBlossomServers(pending.hexKey)
+		if err != nil || len(servers) == 0 {
+			servers = LoadBlossomServers()
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+
+		manifest, err := UploadFile(ctx, pending.hexKey, pending.earmark.Path, servers, nil)
+		if err != nil {
+			return blossomUploadMsg{err: fmt.Errorf("upload failed: %w", err)}
+		}
+
+		// Attach the manifest to the existing earmark on Nostr.
+		pending.earmark.Blossom = manifest
+		if err := UpdateEarmark(pending.hexKey, pending.earmark); err != nil {
+			return blossomUploadMsg{err: fmt.Errorf("upload OK but earmark update failed: %w", err)}
+		}
+
+		return blossomUploadMsg{}
 	}
 }
 
@@ -676,6 +745,10 @@ func (m *PlayerModel) saveKeyAndAddEarmark(rawKey string) tea.Cmd {
 		}
 
 		_ = RemoveFromQueue(e)
+
+		// Prime the upload so the nostrPublishedMsg handler can fire it.
+		m.pendingBlossom = &pendingBlossomUpload{hexKey: hexKey, earmark: e}
+
 		return nostrPublishedMsg{action: "earmark"}
 	}
 }

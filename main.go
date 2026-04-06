@@ -86,7 +86,6 @@ Matching is case-insensitive against the full file path.`,
 	cmd.AddCommand(listCmd())
 	cmd.AddCommand(relayCmd())
 	cmd.AddCommand(blossomCmd())
-	cmd.AddCommand(uploadCmd())
 	cmd.AddCommand(earmarksCmd())
 
 	return cmd
@@ -617,92 +616,12 @@ func blossomResetCmd() *cobra.Command {
 	}
 }
 
-// uploadCmd returns the 'upload' subcommand that encrypts and uploads an audio
-// file to Blossom servers, then attaches the manifest to the matching earmark.
-func uploadCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "upload <file>",
-		Short: "Encrypt and upload an audio file to Blossom servers",
-		Long: `Split, encrypt (AES-256-GCM), and upload an audio file to your configured
-Blossom servers. Each 16 MiB chunk is uploaded to at least two servers for
-redundancy.
-
-After a successful upload the manifest (chunk SHA-256s, server URLs, and
-encryption key) is attached to the matching earmark so the file can be
-downloaded and played on any device running dirplay with the same Nostr key.
-
-Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			filePath := args[0]
-
-			cfg, err := LoadConfig()
-			if err != nil || cfg.NostrPrivateKey == "" {
-				return fmt.Errorf("no Nostr private key configured — run: dirplay nostr-key <nsec_or_hex_key>")
-			}
-
-			// Resolve servers: kind-10063 discovery + configured list.
-			fmt.Fprintln(cmd.OutOrStdout(), "Resolving Blossom servers...")
-			servers, err := ResolveBlossomServers(cfg.NostrPrivateKey)
-			if err != nil || len(servers) == 0 {
-				servers = LoadBlossomServers()
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Uploading to: %s\n", strings.Join(servers, ", "))
-
-			// Fetch earmarks so we can attach the manifest afterwards.
-			fmt.Fprintln(cmd.OutOrStdout(), "Fetching earmarks...")
-			earmarks, _ := FetchEarmarks(cfg.NostrPrivateKey)
-
-			// Find a matching earmark by path (exact) or artist+title.
-			absPath, _ := filepath.Abs(filePath)
-			var matchIdx int = -1
-			for i, e := range earmarks {
-				if e.Path == absPath || (e.Path == "" && e.Title != "" &&
-					strings.EqualFold(filepath.Base(filePath), e.Title)) {
-					matchIdx = i
-					break
-				}
-			}
-
-			// Upload with progress.
-			ctx := cmd.Context()
-			if ctx == nil {
-				ctx = context.Background()
-			}
-
-			total := 0 // will be set after upload (we don't know chunk count upfront)
-			manifest, err := UploadFile(ctx, cfg.NostrPrivateKey, filePath, servers,
-				func(done, _ int) {
-					total = done
-					fmt.Fprintf(cmd.OutOrStdout(), "\r  chunk %d uploaded...", done)
-				})
-			if err != nil {
-				return fmt.Errorf("upload failed: %w", err)
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "\r  %d chunk(s) uploaded.           \n", total)
-
-			// Attach manifest to the earmark if we found one.
-			if matchIdx >= 0 {
-				earmarks[matchIdx].Blossom = manifest
-				fmt.Fprintln(cmd.OutOrStdout(), "Attaching manifest to earmark...")
-				if err := UpdateEarmark(cfg.NostrPrivateKey, earmarks[matchIdx]); err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not update earmark: %v\n", err)
-				} else {
-					fmt.Fprintln(cmd.OutOrStdout(), "Earmark updated.")
-				}
-			} else {
-				fmt.Fprintln(cmd.OutOrStdout(), "(no matching earmark found — manifest not attached)")
-			}
-
-			fmt.Fprintf(cmd.OutOrStdout(), "Upload complete: %d chunk(s) across %d server(s).\n",
-				len(manifest.Chunks), len(servers))
-			return nil
-		},
-	}
-}
-
 // earmarksCmd returns the 'earmarks' subcommand that plays earmarked files
 // as a playlist.
+//
+// Local files are added to the playlist immediately. Files that only exist as
+// Blossom-uploaded chunks are downloaded in parallel before playback begins;
+// a progress summary is printed to stdout while waiting.
 func earmarksCmd() *cobra.Command {
 	var noTUI bool
 
@@ -711,8 +630,9 @@ func earmarksCmd() *cobra.Command {
 		Short: "Play your earmarked tracks as a playlist",
 		Long: `Fetch your private Nostr earmark list and play the files as a playlist.
 
-Tracks are played in the order they were earmarked. Files that no longer exist
-on disk are skipped with a warning.
+Tracks are played in the order they were earmarked. Files that exist on disk
+are used directly. Files that were uploaded to Blossom servers are downloaded,
+decrypted, and reassembled in parallel before playback begins.
 
 Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
 		Args: cobra.NoArgs,
@@ -732,75 +652,110 @@ Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
 				return fmt.Errorf("no earmarks found — press [E] while a track is playing to add one")
 			}
 
-			// Build playlist from stored paths. When a file is missing but the
-			// earmark has a Blossom manifest, download and decrypt to a temp file.
-			var playlist []string
-			var tempFiles []string // cleaned up after playback
-			var skipped int
-			for _, e := range earmarks {
-				if e.Path == "" && e.Blossom == nil {
+			// Separate earmarks into local files and those requiring download.
+			// playlist is pre-sized so each goroutine can write to its own index.
+			playlist := make([]string, len(earmarks))
+			isTemp := make([]bool, len(earmarks))
+
+			type dlWork struct {
+				idx     int
+				earmark Earmark
+			}
+			var work []dlWork
+
+			for i, e := range earmarks {
+				if e.Path != "" {
+					if _, err := os.Stat(e.Path); err == nil {
+						playlist[i] = e.Path
+						continue
+					}
+				}
+				if e.Blossom != nil {
+					work = append(work, dlWork{i, e})
+					continue
+				}
+				// No local file and no Blossom manifest — will be filtered out below.
+			}
+
+			// Download all Blossom tracks in parallel, collecting results.
+			if len(work) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Downloading %d Blossom track(s)...\n", len(work))
+
+				type dlResult struct {
+					idx  int
+					path string
+					err  error
+				}
+				results := make(chan dlResult, len(work))
+
+				for _, w := range work {
+					w := w
+					go func() {
+						dlCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+						defer cancel()
+						path, err := DownloadAndReassemble(dlCtx, w.earmark.Blossom, nil)
+						results <- dlResult{w.idx, path, err}
+					}()
+				}
+
+				done := 0
+				for range work {
+					r := <-results
+					done++
+					if r.err != nil {
+						e := earmarks[r.idx]
+						desc := e.Title
+						if desc == "" {
+							desc = filepath.Base(e.Path)
+						}
+						fmt.Fprintf(cmd.ErrOrStderr(), "  [%d/%d] failed: %s — %v\n",
+							done, len(work), desc, r.err)
+					} else {
+						playlist[r.idx] = r.path
+						isTemp[r.idx] = true
+						fmt.Fprintf(cmd.OutOrStdout(), "  [%d/%d] ready\n", done, len(work))
+					}
+				}
+			}
+
+			// Compact: filter out empty slots (missing files) preserving order.
+			var finalPlaylist []string
+			var tempFiles []string
+			skipped := 0
+			for i, p := range playlist {
+				if p == "" {
 					skipped++
 					continue
 				}
-
-				// File exists on disk — use it directly.
-				if e.Path != "" {
-					if _, err := os.Stat(e.Path); err == nil {
-						playlist = append(playlist, e.Path)
-						continue
-					}
+				finalPlaylist = append(finalPlaylist, p)
+				if isTemp[i] {
+					tempFiles = append(tempFiles, p)
 				}
-
-				// File missing — try Blossom download.
-				if e.Blossom != nil {
-					desc := e.Title
-					if desc == "" {
-						desc = filepath.Base(e.Path)
-					}
-					fmt.Fprintf(cmd.OutOrStdout(), "Downloading: %s\n", desc)
-					dlCtx, dlCancel := context.WithTimeout(context.Background(), 5*time.Minute)
-					tmpPath, err := DownloadAndReassemble(dlCtx, e.Blossom,
-						func(done, total int) {
-							fmt.Fprintf(cmd.OutOrStdout(), "\r  chunk %d/%d...", done, total)
-						})
-					dlCancel()
-					if err != nil {
-						fmt.Fprintf(cmd.ErrOrStderr(), "\nskipping (download failed): %s — %v\n", desc, err)
-						skipped++
-						continue
-					}
-					fmt.Fprintln(cmd.OutOrStdout(), "\r  download complete.           ")
-					playlist = append(playlist, tmpPath)
-					tempFiles = append(tempFiles, tmpPath)
-					continue
-				}
-
-				fmt.Fprintf(cmd.ErrOrStderr(), "skipping (not found on disk): %s\n", e.Path)
-				skipped++
 			}
-			// Ensure temp files are removed when playback ends.
+
+			// Temp files are cleaned up when the player exits.
 			defer func() {
 				for _, f := range tempFiles {
 					os.Remove(f)
 				}
 			}()
 
-			if len(playlist) == 0 {
-				msg := "no earmarked files found on disk"
+			if len(finalPlaylist) == 0 {
+				msg := "no earmarked files available for playback"
 				if skipped > 0 {
-					msg += fmt.Sprintf(" (%d earmark(s) have no recorded path or the file has moved)", skipped)
+					msg += fmt.Sprintf(" (%d skipped — file not found and no Blossom upload)", skipped)
 				}
 				return fmt.Errorf("%s", msg)
 			}
 
 			if skipped > 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "Playing %d track(s), %d skipped.\n\n", len(playlist), skipped)
+				fmt.Fprintf(cmd.OutOrStdout(), "Playing %d track(s), %d skipped.\n\n", len(finalPlaylist), skipped)
 			}
 
 			if noTUI {
-				return runNoTUI(playlist)
+				return runNoTUI(finalPlaylist)
 			}
-			return runTUI(playlist)
+			return runTUI(finalPlaylist)
 		},
 	}
 
