@@ -36,6 +36,10 @@ type Config struct {
 	// NostrRelays is the list of relay WebSocket URLs dirplay publishes to and
 	// fetches from. When empty, defaultNostrRelays in nostr.go is used.
 	NostrRelays []string `json:"nostr_relays,omitempty"`
+	// BlossomServers is the list of Blossom server base URLs used for audio
+	// file uploads and downloads. When empty, defaultBlossomServers in
+	// blossom.go is used.
+	BlossomServers []string `json:"blossom_servers,omitempty"`
 }
 
 // LoadNostrRelays returns the user-configured relay list, falling back to

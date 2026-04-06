@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -84,6 +85,7 @@ Matching is case-insensitive against the full file path.`,
 	cmd.AddCommand(nostrKeyCmd())
 	cmd.AddCommand(listCmd())
 	cmd.AddCommand(relayCmd())
+	cmd.AddCommand(blossomCmd())
 	cmd.AddCommand(earmarksCmd())
 
 	return cmd
@@ -488,8 +490,138 @@ func relayResetCmd() *cobra.Command {
 	}
 }
 
+// blossomCmd returns the 'blossom' subcommand group for managing Blossom servers.
+func blossomCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "blossom",
+		Short: "Manage the Blossom audio server list",
+		Long: `Manage the list of Blossom server URLs used for uploading and downloading
+encrypted audio chunks.
+
+When no servers are configured the built-in defaults are used. At least two
+servers are recommended so each chunk has redundancy.`,
+	}
+	cmd.AddCommand(blossomListCmd(), blossomAddCmd(), blossomRemoveCmd(), blossomResetCmd())
+	return cmd
+}
+
+func blossomListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "Show the active Blossom server list",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, _ := LoadConfig()
+			servers := LoadBlossomServers()
+			if len(cfg.BlossomServers) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "(using built-in defaults)")
+			}
+			for _, s := range servers {
+				fmt.Fprintln(cmd.OutOrStdout(), s)
+			}
+			return nil
+		},
+	}
+}
+
+func blossomAddCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "add <https://server.example.com>",
+		Short: "Add a Blossom server to the list",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			url := args[0]
+			if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
+				return fmt.Errorf("server URL must start with https:// or http://")
+			}
+			cfg, err := LoadConfig()
+			if err != nil {
+				cfg = &Config{}
+			}
+			if len(cfg.BlossomServers) == 0 {
+				cfg.BlossomServers = append([]string{}, defaultBlossomServers...)
+			}
+			for _, s := range cfg.BlossomServers {
+				if s == url {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s is already in the server list\n", url)
+					return nil
+				}
+			}
+			cfg.BlossomServers = append(cfg.BlossomServers, url)
+			if err := SaveConfig(cfg); err != nil {
+				return fmt.Errorf("could not save config: %w", err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Added %s\n", url)
+			return nil
+		},
+	}
+}
+
+func blossomRemoveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove <https://server.example.com>",
+		Short: "Remove a Blossom server from the list",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			url := args[0]
+			cfg, err := LoadConfig()
+			if err != nil {
+				cfg = &Config{}
+			}
+			if len(cfg.BlossomServers) == 0 {
+				cfg.BlossomServers = append([]string{}, defaultBlossomServers...)
+			}
+			filtered := cfg.BlossomServers[:0]
+			found := false
+			for _, s := range cfg.BlossomServers {
+				if s == url {
+					found = true
+				} else {
+					filtered = append(filtered, s)
+				}
+			}
+			if !found {
+				return fmt.Errorf("%s is not in the server list", url)
+			}
+			cfg.BlossomServers = filtered
+			if err := SaveConfig(cfg); err != nil {
+				return fmt.Errorf("could not save config: %w", err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Removed %s\n", url)
+			return nil
+		},
+	}
+}
+
+func blossomResetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "reset",
+		Short: "Reset the Blossom server list to built-in defaults",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := LoadConfig()
+			if err != nil {
+				cfg = &Config{}
+			}
+			cfg.BlossomServers = nil
+			if err := SaveConfig(cfg); err != nil {
+				return fmt.Errorf("could not save config: %w", err)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Blossom server list reset to defaults:")
+			for _, s := range defaultBlossomServers {
+				fmt.Fprintln(cmd.OutOrStdout(), " ", s)
+			}
+			return nil
+		},
+	}
+}
+
 // earmarksCmd returns the 'earmarks' subcommand that plays earmarked files
 // as a playlist.
+//
+// Local files are added to the playlist immediately. Files that only exist as
+// Blossom-uploaded chunks are downloaded in parallel before playback begins;
+// a progress summary is printed to stdout while waiting.
 func earmarksCmd() *cobra.Command {
 	var noTUI bool
 
@@ -498,8 +630,9 @@ func earmarksCmd() *cobra.Command {
 		Short: "Play your earmarked tracks as a playlist",
 		Long: `Fetch your private Nostr earmark list and play the files as a playlist.
 
-Tracks are played in the order they were earmarked. Files that no longer exist
-on disk are skipped with a warning.
+Tracks are played in the order they were earmarked. Files that exist on disk
+are used directly. Files that were uploaded to Blossom servers are downloaded,
+decrypted, and reassembled in parallel before playback begins.
 
 Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
 		Args: cobra.NoArgs,
@@ -519,38 +652,110 @@ Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
 				return fmt.Errorf("no earmarks found — press [E] while a track is playing to add one")
 			}
 
-			// Build playlist from stored paths, skipping missing files.
-			var playlist []string
-			var skipped int
-			for _, e := range earmarks {
-				if e.Path == "" {
-					skipped++
+			// Separate earmarks into local files and those requiring download.
+			// playlist is pre-sized so each goroutine can write to its own index.
+			playlist := make([]string, len(earmarks))
+			isTemp := make([]bool, len(earmarks))
+
+			type dlWork struct {
+				idx     int
+				earmark Earmark
+			}
+			var work []dlWork
+
+			for i, e := range earmarks {
+				if e.Path != "" {
+					if _, err := os.Stat(e.Path); err == nil {
+						playlist[i] = e.Path
+						continue
+					}
+				}
+				if e.Blossom != nil {
+					work = append(work, dlWork{i, e})
 					continue
 				}
-				if _, err := os.Stat(e.Path); os.IsNotExist(err) {
-					fmt.Fprintf(cmd.ErrOrStderr(), "skipping (not found on disk): %s\n", e.Path)
-					skipped++
-					continue
-				}
-				playlist = append(playlist, e.Path)
+				// No local file and no Blossom manifest — will be filtered out below.
 			}
 
-			if len(playlist) == 0 {
-				msg := "no earmarked files found on disk"
+			// Download all Blossom tracks in parallel, collecting results.
+			if len(work) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Downloading %d Blossom track(s)...\n", len(work))
+
+				type dlResult struct {
+					idx  int
+					path string
+					err  error
+				}
+				results := make(chan dlResult, len(work))
+
+				for _, w := range work {
+					w := w
+					go func() {
+						dlCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+						defer cancel()
+						path, err := DownloadAndReassemble(dlCtx, w.earmark.Blossom, nil)
+						results <- dlResult{w.idx, path, err}
+					}()
+				}
+
+				done := 0
+				for range work {
+					r := <-results
+					done++
+					if r.err != nil {
+						e := earmarks[r.idx]
+						desc := e.Title
+						if desc == "" {
+							desc = filepath.Base(e.Path)
+						}
+						fmt.Fprintf(cmd.ErrOrStderr(), "  [%d/%d] failed: %s — %v\n",
+							done, len(work), desc, r.err)
+					} else {
+						playlist[r.idx] = r.path
+						isTemp[r.idx] = true
+						fmt.Fprintf(cmd.OutOrStdout(), "  [%d/%d] ready\n", done, len(work))
+					}
+				}
+			}
+
+			// Compact: filter out empty slots (missing files) preserving order.
+			var finalPlaylist []string
+			var tempFiles []string
+			skipped := 0
+			for i, p := range playlist {
+				if p == "" {
+					skipped++
+					continue
+				}
+				finalPlaylist = append(finalPlaylist, p)
+				if isTemp[i] {
+					tempFiles = append(tempFiles, p)
+				}
+			}
+
+			// Temp files are cleaned up when the player exits.
+			defer func() {
+				for _, f := range tempFiles {
+					os.Remove(f)
+				}
+			}()
+
+			if len(finalPlaylist) == 0 {
+				msg := "no earmarked files available for playback"
 				if skipped > 0 {
-					msg += fmt.Sprintf(" (%d earmark(s) have no recorded path or the file has moved)", skipped)
+					msg += fmt.Sprintf(" (%d skipped — file not found and no Blossom upload)", skipped)
 				}
 				return fmt.Errorf("%s", msg)
 			}
 
 			if skipped > 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "Playing %d track(s), %d skipped.\n\n", len(playlist), skipped)
+				fmt.Fprintf(cmd.OutOrStdout(), "Playing %d track(s), %d skipped.\n\n", len(finalPlaylist), skipped)
 			}
 
 			if noTUI {
-				return runNoTUI(playlist)
+				return runNoTUI(finalPlaylist)
 			}
-			return runTUI(playlist)
+			return runTUI(finalPlaylist)
 		},
 	}
 
