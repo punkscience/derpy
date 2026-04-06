@@ -386,6 +386,98 @@ func TestPrepareUploadNotFound(t *testing.T) {
 	}
 }
 
+// TestDeleteChunk verifies that deleteChunk issues a DELETE request with an
+// Authorization header and treats a 404 as success.
+func TestDeleteChunk(t *testing.T) {
+	var receivedAuth string
+	var receivedMethod string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedMethod = r.Method
+		receivedAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	privKey := nostr.GeneratePrivateKey()
+	sha256hex := strings.Repeat("a", 64)
+
+	if err := deleteChunk(context.Background(), srv.URL, sha256hex, privKey); err != nil {
+		t.Fatalf("deleteChunk: %v", err)
+	}
+	if receivedMethod != http.MethodDelete {
+		t.Errorf("expected DELETE, got %s", receivedMethod)
+	}
+	if !strings.HasPrefix(receivedAuth, "Nostr ") {
+		t.Errorf("expected 'Nostr <token>' Authorization header, got %q", receivedAuth)
+	}
+}
+
+// TestDeleteChunk404 verifies that a 404 response is treated as success
+// (idempotent — the chunk is already gone).
+func TestDeleteChunk404(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	privKey := nostr.GeneratePrivateKey()
+	if err := deleteChunk(context.Background(), srv.URL, strings.Repeat("b", 64), privKey); err != nil {
+		t.Errorf("expected 404 to be treated as success, got: %v", err)
+	}
+}
+
+// TestDeleteManifestChunks verifies that all chunks across all servers receive
+// DELETE requests in parallel.
+func TestDeleteManifestChunks(t *testing.T) {
+	var mu sync.Mutex
+	var deleted []string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			mu.Lock()
+			deleted = append(deleted, strings.TrimPrefix(r.URL.Path, "/"))
+			mu.Unlock()
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	privKey := nostr.GeneratePrivateKey()
+	manifest := &BlossomManifest{
+		Key: base64.StdEncoding.EncodeToString(make([]byte, 32)),
+		Chunks: []BlossomChunk{
+			{Index: 0, SHA256: strings.Repeat("a", 64), Servers: []string{srv.URL}},
+			{Index: 1, SHA256: strings.Repeat("b", 64), Servers: []string{srv.URL}},
+			{Index: 2, SHA256: strings.Repeat("c", 64), Servers: []string{srv.URL}},
+		},
+	}
+
+	DeleteManifestChunks(context.Background(), privKey, manifest)
+
+	if len(deleted) != 3 {
+		t.Errorf("expected 3 DELETE calls, got %d: %v", len(deleted), deleted)
+	}
+}
+
+// TestDeleteManifestChunks_Nil verifies that a nil manifest is a no-op.
+func TestDeleteManifestChunks_Nil(t *testing.T) {
+	// Should not panic.
+	DeleteManifestChunks(context.Background(), nostr.GeneratePrivateKey(), nil)
+}
+
+// TestDeleteManifestChunks_EmptyServers verifies that chunks with no servers
+// (queued while offline, never uploaded) are silently skipped.
+func TestDeleteManifestChunks_EmptyServers(t *testing.T) {
+	manifest := &BlossomManifest{
+		Key: base64.StdEncoding.EncodeToString(make([]byte, 32)),
+		Chunks: []BlossomChunk{
+			{Index: 0, SHA256: strings.Repeat("d", 64), Servers: nil},
+		},
+	}
+	// Should not panic or error.
+	DeleteManifestChunks(context.Background(), nostr.GeneratePrivateKey(), manifest)
+}
+
 // TestPrepareUploadSHA256sKnownBeforeUpload verifies the key insight: all chunk
 // SHA-256s are populated by PrepareUpload before any network I/O occurs.
 func TestPrepareUploadSHA256sKnownBeforeUpload(t *testing.T) {

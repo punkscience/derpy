@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -18,6 +19,10 @@ const (
 	// earmarkKind is the NIP-51 "categorized bookmarks" kind.
 	// It is an addressable event: relays keep only the latest version per (pubkey, kind, d).
 	earmarkKind = 30001
+
+	// EarmarkMaxAge is the retention window for earmarks. Entries older than
+	// this are deleted from Nostr and their Blossom chunks are purged on startup.
+	EarmarkMaxAge = 30 * 24 * time.Hour
 )
 
 // Earmark represents a single earmarked track stored in the private list.
@@ -154,6 +159,63 @@ func UpdateEarmark(hexPrivKey string, updated Earmark) error {
 	publishCtx, publishCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer publishCancel()
 	return publishEarmarks(publishCtx, hexPrivKey, existing)
+}
+
+// CleanupOldEarmarks removes earmarks older than EarmarkMaxAge from the Nostr
+// list and deletes their Blossom chunks from all associated servers.
+//
+// The operation is best-effort: Blossom deletions that fail (server down,
+// already purged) are silently ignored. If the Nostr republish fails the
+// function returns an error but chunk deletions that already completed are
+// not rolled back.
+//
+// Returns the number of earmarks removed.
+func CleanupOldEarmarks(hexPrivKey string) (int, error) {
+	earmarks, err := FetchEarmarks(hexPrivKey)
+	if err != nil {
+		return 0, fmt.Errorf("could not fetch earmarks for cleanup: %w", err)
+	}
+
+	cutoff := time.Now().Add(-EarmarkMaxAge).Unix()
+
+	var keep, remove []Earmark
+	for _, e := range earmarks {
+		if e.Timestamp < cutoff {
+			remove = append(remove, e)
+		} else {
+			keep = append(keep, e)
+		}
+	}
+
+	if len(remove) == 0 {
+		return 0, nil
+	}
+
+	// Delete Blossom chunks for all old earmarks in parallel.
+	// Use a generous timeout — there may be many chunks across multiple servers.
+	blossomCtx, blossomCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	var wg sync.WaitGroup
+	for _, e := range remove {
+		if e.Blossom != nil {
+			e := e
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				DeleteManifestChunks(blossomCtx, hexPrivKey, e.Blossom)
+			}()
+		}
+	}
+	wg.Wait()
+	blossomCancel()
+
+	// Republish the earmark list without the old entries.
+	publishCtx, publishCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer publishCancel()
+	if err := publishEarmarks(publishCtx, hexPrivKey, keep); err != nil {
+		return 0, fmt.Errorf("could not republish earmark list after cleanup: %w", err)
+	}
+
+	return len(remove), nil
 }
 
 // publishEarmarks encrypts and publishes the complete earmark slice as a

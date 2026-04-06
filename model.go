@@ -65,6 +65,11 @@ type queueFlushedMsg struct {
 	count int // number of earmarks successfully published from the queue
 }
 
+// cleanupMsg is sent after the startup old-earmark cleanup completes.
+type cleanupMsg struct {
+	removed int // number of earmarks older than EarmarkMaxAge that were purged
+}
+
 
 type trackDeletedMsg struct {
 	err error
@@ -82,12 +87,11 @@ func NewPlayerModel(playlist []string) *PlayerModel {
 
 // Init initializes the model
 func (m *PlayerModel) Init() tea.Cmd {
-	// Start the first track and attempt to flush any offline-queued earmarks
-	// that failed to publish during a previous session.
 	return tea.Batch(
 		m.loadCurrentTrack(),
 		m.tickCmd(),
-		m.flushQueueCmd(),
+		m.flushQueueCmd(),   // retry any earmarks that failed to publish last session
+		m.cleanupCmd(),      // purge earmarks older than 30 days + their Blossom chunks
 	)
 }
 
@@ -372,6 +376,12 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case queueFlushedMsg:
 		if msg.count > 0 {
 			m.nostrStatus = fmt.Sprintf("Nostr: synced %d queued earmark(s)", msg.count)
+		}
+		return m, nil
+
+	case cleanupMsg:
+		if msg.removed > 0 {
+			m.nostrStatus = fmt.Sprintf("Nostr: removed %d expired earmark(s)", msg.removed)
 		}
 		return m, nil
 
@@ -732,11 +742,23 @@ func (m *PlayerModel) flushQueueCmd() tea.Cmd {
 	return func() tea.Msg {
 		cfg, err := LoadConfig()
 		if err != nil || cfg.NostrPrivateKey == "" {
-			// No key — nothing to flush.
 			return queueFlushedMsg{}
 		}
 		count, _ := FlushQueue(cfg.NostrPrivateKey)
 		return queueFlushedMsg{count: count}
+	}
+}
+
+// cleanupCmd runs at startup to purge earmarks older than EarmarkMaxAge (30
+// days) and delete their Blossom chunks from all associated servers.
+func (m *PlayerModel) cleanupCmd() tea.Cmd {
+	return func() tea.Msg {
+		cfg, err := LoadConfig()
+		if err != nil || cfg.NostrPrivateKey == "" {
+			return cleanupMsg{}
+		}
+		removed, _ := CleanupOldEarmarks(cfg.NostrPrivateKey)
+		return cleanupMsg{removed: removed}
 	}
 }
 

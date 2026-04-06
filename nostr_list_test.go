@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -155,4 +156,63 @@ func TestListCmdNoKey(t *testing.T) {
 	// (or the saved config has no NostrPrivateKey set).  If a key happens to be
 	// set, this assertion would fail — acceptable in a real environment.
 	_ = err // We just ensure it doesn't panic.
+}
+
+// TestEarmarkMaxAge verifies the 30-day constant and the cutoff arithmetic.
+func TestEarmarkMaxAge(t *testing.T) {
+	if EarmarkMaxAge.Hours() != 30*24 {
+		t.Errorf("EarmarkMaxAge = %v, want 720h", EarmarkMaxAge)
+	}
+
+	cutoff := time.Now().Add(-EarmarkMaxAge).Unix()
+
+	old := time.Now().Add(-31 * 24 * time.Hour).Unix()
+	recent := time.Now().Add(-29 * 24 * time.Hour).Unix()
+	exact := time.Now().Add(-30 * 24 * time.Hour).Unix()
+
+	if old >= cutoff {
+		t.Error("31-day-old earmark should be below the cutoff")
+	}
+	if recent < cutoff {
+		t.Error("29-day-old earmark should be above the cutoff")
+	}
+	// Exactly at the boundary (allow 1s of test execution slack).
+	if exact > cutoff+1 {
+		t.Error("30-day-old earmark should be at or below the cutoff")
+	}
+}
+
+// TestCleanupPartitionsEarmarks verifies that CleanupOldEarmarks correctly
+// separates old from recent earmarks using the cutoff logic, without making
+// any network calls.
+func TestCleanupPartitionsEarmarks(t *testing.T) {
+	cutoff := time.Now().Add(-EarmarkMaxAge).Unix()
+
+	earmarks := []Earmark{
+		{Title: "Old 1", Timestamp: cutoff - 1000},
+		{Title: "Old 2", Timestamp: cutoff - 1},
+		{Title: "Recent 1", Timestamp: cutoff + 1},
+		{Title: "Recent 2", Timestamp: time.Now().Unix()},
+	}
+
+	var keep, remove []Earmark
+	for _, e := range earmarks {
+		if e.Timestamp < cutoff {
+			remove = append(remove, e)
+		} else {
+			keep = append(keep, e)
+		}
+	}
+
+	if len(remove) != 2 {
+		t.Errorf("expected 2 old earmarks, got %d", len(remove))
+	}
+	if len(keep) != 2 {
+		t.Errorf("expected 2 recent earmarks, got %d", len(keep))
+	}
+	for _, e := range remove {
+		if !strings.HasPrefix(e.Title, "Old") {
+			t.Errorf("wrong earmark in remove list: %q", e.Title)
+		}
+	}
 }

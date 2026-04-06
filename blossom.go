@@ -270,6 +270,59 @@ func downloadChunk(ctx context.Context, serverURL, sha256hex string) ([]byte, er
 	return data, nil
 }
 
+// deleteChunk sends a BUD-01 DELETE request for one blob on one server.
+// A 404 response is treated as success (already gone).
+func deleteChunk(ctx context.Context, serverURL, sha256hex, hexPrivKey string) error {
+	token, err := blossomAuthToken(hexPrivKey, sha256hex, "delete")
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
+		serverURL+"/"+sha256hex, nil)
+	if err != nil {
+		return fmt.Errorf("could not build delete request: %w", err)
+	}
+	req.Header.Set("Authorization", "Nostr "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("delete request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil // already gone — idempotent
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return fmt.Errorf("server returned %d: %s", resp.StatusCode, body)
+	}
+	return nil
+}
+
+// DeleteManifestChunks deletes every encrypted chunk in manifest from all
+// servers that hold it, in parallel. Errors are silently swallowed — a server
+// that is down or has already discarded a chunk should not block cleanup of
+// the rest. A nil manifest is a no-op.
+func DeleteManifestChunks(ctx context.Context, hexPrivKey string, manifest *BlossomManifest) {
+	if manifest == nil {
+		return
+	}
+	var wg sync.WaitGroup
+	for _, chunk := range manifest.Chunks {
+		for _, server := range chunk.Servers {
+			chunk, server := chunk, server
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = deleteChunk(ctx, server, chunk.SHA256, hexPrivKey)
+			}()
+		}
+	}
+	wg.Wait()
+}
+
 // downloadChunkWithFallback tries each server in the chunk's server list until
 // one succeeds, verifying SHA-256 on each attempt.
 func downloadChunkWithFallback(ctx context.Context, chunk BlossomChunk) ([]byte, error) {
