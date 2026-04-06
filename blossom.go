@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -60,7 +61,8 @@ type BlossomChunk struct {
 // uploaded to Blossom servers. The key field is the base64-encoded AES-256-GCM
 // encryption key shared by all chunks.
 type BlossomManifest struct {
-	Key    string         `json:"key"`    // base64 AES-256-GCM key (32 bytes)
+	Key    string         `json:"key"`          // base64 AES-256-GCM key (32 bytes)
+	Ext    string         `json:"ext,omitempty"` // original file extension e.g. ".flac", ".mp3"
 	Chunks []BlossomChunk `json:"chunks"`
 }
 
@@ -404,6 +406,7 @@ func PrepareUpload(filePath string) ([]PreparedChunk, *BlossomManifest, error) {
 
 	manifest := &BlossomManifest{
 		Key:    base64.StdEncoding.EncodeToString(key),
+		Ext:    filepath.Ext(filePath), // preserved so reassembly creates the right temp file extension
 		Chunks: manifestChunks,
 	}
 	return prepared, manifest, nil
@@ -492,8 +495,13 @@ func DownloadAndReassemble(ctx context.Context, manifest *BlossomManifest, progr
 		}
 	}
 
-	// Write reassembled plaintext to a temp file.
-	tmp, err := os.CreateTemp("", "dirplay-*.audio")
+	// Write reassembled plaintext to a temp file using the original extension
+	// so the audio decoder can identify the format correctly.
+	ext := manifest.Ext
+	if ext == "" {
+		ext = ".audio" // fallback for manifests created before this field was added
+	}
+	tmp, err := os.CreateTemp("", "dirplay-*"+ext)
 	if err != nil {
 		return "", fmt.Errorf("could not create temp file: %w", err)
 	}
