@@ -1,107 +1,126 @@
-# dirplay - A Cross-Platform Music Player
+# dirplay
 
-A command-line music player that plays audio files from a specified directory with a minimal Terminal User Interface (TUI).
+A terminal music player with an opinion: shuffle everything, earmark what's hitting right, let the list expire.
 
-## Features
+## The idea
 
-- ✅ Recursively scans directories for audio files
-- ✅ Shuffles playlist automatically (including keyword search results)
-- ✅ Cross-platform audio playback (Windows, Linux, macOS)
-- ✅ Minimal TUI with current track display and progress bar
-- ✅ Keyboard controls for navigation and playback control
-- ✅ Supports multiple audio formats: MP3, WAV, FLAC, OGG, M4A, AAC
+Most music software asks you to curate — to build playlists deliberately, to rate things, to organise. dirplay takes the opposite approach. You point it at a directory, it shuffles everything, and you just listen. No queue management. No star ratings. No decisions.
+
+When something stops you mid-listen — when a track is exactly right for the moment — you press `E` to earmark it. That's the only act of curation dirplay asks of you.
+
+Earmarks expire after 30 days. This is intentional. The list isn't a permanent archive; it's a snapshot of what's resonating *right now*. As your mood and context shift, the list empties and refills with something new. You're forced to keep discovering rather than retreating to the same familiar tracks.
+
+## What it does
+
+- Recursively scans a directory for audio files and shuffles them
+- Minimal TUI: current track, progress bar, nothing else
+- Filter playback by keyword expression: `dirplay jazz AND piano`, `dirplay "blue note" OR prestige`
+- `[E]` earmarks the current track — encrypts it, uploads it to Blossom servers, and saves the manifest to a private Nostr list that follows you across devices
+- `[P]` publishes a public Nostr note about what you're listening to, with a Bandcamp or YouTube link if one can be found
+- `[D]` deletes the current file from disk
+- `dirplay earmarks` plays your earmarked tracks as a playlist — using the local file if it exists, downloading and decrypting from Blossom if not
+- Earmarks older than 30 days are automatically purged on startup, along with their uploaded audio chunks
 
 ## Installation
 
-### Prerequisites
-- Go 1.19 or higher
+Requires Go 1.21+. No system audio headers needed — audio runs over PulseAudio/PipeWire via pure Go.
 
-#### Linux
-- For audio playback, you will need the ALSA development library.
-- On Debian/Ubuntu, you can install it with:
-  ```bash
-  sudo apt install libasound2-dev
-  ```
-- On Fedora/Red Hat, you can install it with:
-  ```bash
-  sudo dnf install alsa-lib-devel
-  ```
-
-### Build from source
 ```bash
-git clone <repository-url>
+git clone https://github.com/punkscience/dirplay
 cd dirplay
-go mod tidy
-go build -o dirplay.exe  # On Windows
-# or
-go build -o dirplay      # On Linux/macOS
+go build -o dirplay
 ```
 
 ## Usage
 
 ```bash
-dirplay <music_directory>
-```
+# Play everything in a directory, shuffled
+dirplay --source ~/Music
 
-### Examples
-```bash
-# Windows
-dirplay.exe "C:\Users\me\Music"
+# Save a default source so you don't have to type it
+dirplay --set-default-source ~/Music
+dirplay
 
-# Linux/macOS  
-./dirplay "/home/user/Music"
-./dirplay "~/Music"
+# Filter by keyword expression
+dirplay jazz AND piano
+dirplay "kind of blue" OR "a love supreme"
+dirplay (jazz OR blues) AND live
+
+# Play your earmarked tracks
+dirplay earmarks
+
+# Print the earmark list
+dirplay list
 ```
 
 ## Controls
 
 | Key | Action |
-|-----|---------|
-| `←` (Left Arrow) | Previous track |
-| `→` (Right Arrow) | Next track |
-| `SPACE` | Pause/Resume playback |
-| `ESC` or `q` | Quit application |
+|-----|--------|
+| `←` | Previous track |
+| `→` | Next track |
+| `SPACE` | Pause / Resume |
+| `E` | Earmark current track |
+| `P` | Post to Nostr |
+| `D` | Delete current file from disk |
+| `ESC` / `q` | Quit |
 
-## Supported Audio Formats
+## Nostr setup
 
-- **MP3** (.mp3)
-- **WAV** (.wav)  
-- **FLAC** (.flac)
-- **OGG Vorbis** (.ogg)
-- **M4A** (.m4a)
-- **AAC** (.aac)
+Earmarks and public posts require a Nostr private key. Everything earmarked is NIP-44 encrypted — relays store only ciphertext. The key never leaves your machine unencrypted.
 
-## How it works
+```bash
+# Save your key (accepts nsec1... bech32 or raw hex)
+dirplay nostr-key nsec1...
 
-1. **Directory Scan**: The application recursively scans the specified directory for supported audio files
-2. **Playlist Shuffle**: All found audio files are added to a playlist and automatically shuffled
-3. **Playback**: The first track in the shuffled playlist starts playing automatically
-4. **Navigation**: Use arrow keys to skip between tracks or space to pause/resume
-5. **Loop**: When the playlist ends, it automatically loops back to the first track
+# The app will also prompt for it inline the first time you press [E] or [P]
+```
 
-## Technical Details
+## Blossom setup
 
-- Built with Go using the [Bubble Tea](https://github.com/charmbracelet/bubbletea) TUI framework
-- Audio playback powered by [Beep](https://github.com/gopxl/beep) audio library
-- Cross-platform compatibility through Go's standard library and audio abstractions
-- Real-time progress tracking and display
+When you earmark a track, dirplay encrypts the audio file (AES-256-GCM) and uploads it to Blossom servers in 16 MB chunks. This means `dirplay earmarks` works on any machine with the same Nostr key — even one that has never seen the original files.
 
-## Troubleshooting
+The default servers are `blossom.band`, `cdn.satellite.earth`, and `nostr.build`. You can manage the list:
 
-### No audio output
-- Ensure your system has audio drivers installed
-- Check that the audio files are in a supported format
-- Verify the directory path is correct and accessible
+```bash
+dirplay blossom list
+dirplay blossom add https://your.server.com
+dirplay blossom remove https://blossom.band
+dirplay blossom reset
+```
 
-### Build errors
-- Make sure you have Go 1.19+ installed
-- Run `go mod tidy` to ensure all dependencies are downloaded
-- Check that CGO is enabled if required by audio libraries
+If you have a kind-10063 Nostr event advertising your preferred Blossom servers, dirplay will discover and use those automatically.
 
-### Performance issues
-- Large music collections may take a moment to scan initially
-- Consider organizing music in smaller subdirectories if scanning is slow
+## Relay setup
 
-## License
+```bash
+dirplay relay list
+dirplay relay add wss://relay.example.com
+dirplay relay remove wss://relay.damus.io
+dirplay relay reset
+```
 
-[Add your license information here]
+Defaults: `relay.damus.io`, `nos.lol`, `relay.primal.net`, `nostr.wine`
+
+## ListenBrainz
+
+```bash
+dirplay token your_listenbrainz_token
+# or export LISTENBRAINZ_TOKEN=...
+```
+
+Scrobbles at 25% completion for tracks longer than 30 seconds.
+
+## Supported formats
+
+MP3, FLAC, WAV, OGG, M4A, AAC
+
+## Technical notes
+
+- Audio via [gopxl/beep](https://github.com/gopxl/beep) + [jfreymuth/pulse](https://github.com/jfreymuth/pulse) (PulseAudio/PipeWire, pure Go)
+- TUI via [charmbracelet/bubbletea](https://github.com/charmbracelet/bubbletea)
+- MPRIS2 D-Bus service on Linux — works with `playerctl`, Waybar, and anything else that speaks MPRIS
+- Nostr via [nbd-wtf/go-nostr](https://github.com/nbd-wtf/go-nostr), NIP-44 encryption, NIP-51 private lists, NIP-65 relay discovery
+- Blossom: BUD-01/BUD-02 blob storage, BUD-11 Nostr keypair auth, kind-10063 server discovery
+- Config at `~/.config/dirplay/config.json` (0600 permissions)
+- Offline queue at `~/.config/dirplay/queue.json` — earmarks survive without internet and sync when connectivity returns
