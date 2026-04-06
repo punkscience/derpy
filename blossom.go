@@ -286,28 +286,37 @@ func downloadChunkWithFallback(ctx context.Context, chunk BlossomChunk) ([]byte,
 
 // --- High-level operations -----------------------------------------------
 
-// UploadProgress is called by UploadFile after each chunk is successfully
-// uploaded so callers can display progress.
-type UploadProgress func(chunksUploaded, chunksTotal int)
+// PreparedChunk is an encrypted chunk ready for upload. It holds the
+// ciphertext in memory so the SHA-256 (blob identity) is known before any
+// network I/O begins.
+type PreparedChunk struct {
+	index  int
+	data   []byte // encrypted bytes: [nonce][ciphertext][tag]
+	sha256 string // hex SHA-256 of data — the Blossom blob identifier
+}
 
-// UploadFile splits filePath into 16 MiB chunks, encrypts each with a fresh
-// random AES-256-GCM key, uploads each chunk to all provided servers
-// concurrently, and returns the BlossomManifest needed to reassemble the file.
+// PrepareUpload reads filePath, splits it into 16 MiB chunks, and encrypts
+// each with a single random AES-256-GCM key. It returns the encrypted chunks
+// and a manifest whose SHA-256s and key are fully populated — no network I/O
+// has occurred yet. The Servers field of each BlossomChunk is empty; it is
+// filled in by UploadPrepared after a successful upload.
 //
-// progress may be nil.
-func UploadFile(ctx context.Context, hexPrivKey, filePath string, servers []string, progress UploadProgress) (*BlossomManifest, error) {
+// This separation lets callers publish the earmark to Nostr with complete
+// chunk identities (SHA-256s) before the upload begins.
+func PrepareUpload(filePath string) ([]PreparedChunk, *BlossomManifest, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("could not open file: %w", err)
+		return nil, nil, fmt.Errorf("could not open file: %w", err)
 	}
 	defer f.Close()
 
 	key, err := generateEncryptionKey()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	var chunks []BlossomChunk
+	var prepared []PreparedChunk
+	var manifestChunks []BlossomChunk
 	buf := make([]byte, blossomChunkSize)
 	index := 0
 
@@ -319,39 +328,57 @@ func UploadFile(ctx context.Context, hexPrivKey, filePath string, servers []stri
 
 		encrypted, err := encryptChunk(buf[:n], key)
 		if err != nil {
-			return nil, fmt.Errorf("chunk %d: encryption failed: %w", index, err)
+			return nil, nil, fmt.Errorf("chunk %d: encryption failed: %w", index, err)
 		}
 
 		sum := sha256Hex(encrypted)
-		accepted, err := uploadChunkToServers(ctx, servers, encrypted, sum, hexPrivKey)
-		if err != nil {
-			return nil, err
-		}
-
-		chunks = append(chunks, BlossomChunk{
-			Index:   index,
-			SHA256:  sum,
-			Size:    len(encrypted),
-			Servers: accepted,
+		prepared = append(prepared, PreparedChunk{index: index, data: encrypted, sha256: sum})
+		manifestChunks = append(manifestChunks, BlossomChunk{
+			Index:  index,
+			SHA256: sum,
+			Size:   len(encrypted),
+			// Servers left empty — filled by UploadPrepared.
 		})
 		index++
-
-		if progress != nil {
-			progress(index, 0) // total unknown until EOF; caller can use -1 to indicate streaming
-		}
 
 		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
 			break
 		}
 		if readErr != nil {
-			return nil, fmt.Errorf("could not read file: %w", readErr)
+			return nil, nil, fmt.Errorf("could not read file: %w", readErr)
 		}
 	}
 
-	return &BlossomManifest{
+	manifest := &BlossomManifest{
 		Key:    base64.StdEncoding.EncodeToString(key),
-		Chunks: chunks,
-	}, nil
+		Chunks: manifestChunks,
+	}
+	return prepared, manifest, nil
+}
+
+// UploadProgress is called by UploadPrepared after each chunk is successfully
+// uploaded so callers can display progress.
+type UploadProgress func(chunksUploaded, chunksTotal int)
+
+// UploadPrepared uploads pre-encrypted chunks to the given Blossom servers
+// concurrently and fills in the Servers field of each BlossomChunk in manifest
+// with the URLs that accepted it. At least one server must accept each chunk.
+//
+// progress may be nil.
+func UploadPrepared(ctx context.Context, hexPrivKey string, chunks []PreparedChunk, manifest *BlossomManifest, servers []string, progress UploadProgress) error {
+	total := len(chunks)
+	for _, c := range chunks {
+		accepted, err := uploadChunkToServers(ctx, servers, c.data, c.sha256, hexPrivKey)
+		if err != nil {
+			return err
+		}
+		manifest.Chunks[c.index].Servers = accepted
+
+		if progress != nil {
+			progress(c.index+1, total)
+		}
+	}
+	return nil
 }
 
 // DownloadProgress is called by DownloadAndReassemble after each chunk is

@@ -210,9 +210,9 @@ func TestUploadDownloadChunk(t *testing.T) {
 	}
 }
 
-// TestUploadFileAndReassemble tests the full UploadFile → DownloadAndReassemble
-// pipeline against a real httptest Blossom server, using a file larger than
-// one chunk to exercise the splitting logic.
+// TestUploadFileAndReassemble tests the full PrepareUpload → UploadPrepared →
+// DownloadAndReassemble pipeline against a real httptest Blossom server, using
+// a file larger than one chunk to exercise the splitting logic.
 func TestUploadFileAndReassemble(t *testing.T) {
 	srv, cleanup := blossomTestServer(t)
 	defer cleanup()
@@ -236,20 +236,42 @@ func TestUploadFileAndReassemble(t *testing.T) {
 	}
 	tmp.Close()
 
-	servers := []string{srv.URL}
-	var progressCalls []int
-	manifest, err := UploadFile(context.Background(), privKey, tmp.Name(), servers,
-		func(done, _ int) { progressCalls = append(progressCalls, done) })
+	// Step 1: encrypt locally — SHA-256s known before any network I/O.
+	prepared, manifest, err := PrepareUpload(tmp.Name())
 	if err != nil {
-		t.Fatalf("UploadFile: %v", err)
+		t.Fatalf("PrepareUpload: %v", err)
 	}
 
 	// 2.5 chunks → 3 chunks
 	if len(manifest.Chunks) != 3 {
 		t.Errorf("expected 3 chunks, got %d", len(manifest.Chunks))
 	}
+	// All SHA-256s must be populated before upload.
+	for i, c := range manifest.Chunks {
+		if c.SHA256 == "" {
+			t.Errorf("chunk %d has empty SHA-256 before upload", i)
+		}
+		if len(c.Servers) != 0 {
+			t.Errorf("chunk %d has servers set before upload (should be empty)", i)
+		}
+	}
+
+	// Step 2: upload pre-encrypted chunks.
+	servers := []string{srv.URL}
+	var progressCalls []int
+	if err := UploadPrepared(context.Background(), privKey, prepared, manifest, servers,
+		func(done, _ int) { progressCalls = append(progressCalls, done) }); err != nil {
+		t.Fatalf("UploadPrepared: %v", err)
+	}
+
 	if len(progressCalls) != 3 {
 		t.Errorf("expected 3 progress callbacks, got %d", len(progressCalls))
+	}
+	// Servers must be populated after upload.
+	for i, c := range manifest.Chunks {
+		if len(c.Servers) == 0 {
+			t.Errorf("chunk %d has no servers after upload", i)
+		}
 	}
 
 	// Verify the manifest key decodes to 32 bytes.
@@ -356,16 +378,36 @@ func TestManifestKeyRoundTrip(t *testing.T) {
 	}
 }
 
-// TestUploadFileNotFound verifies UploadFile returns an error for a missing file.
-func TestUploadFileNotFound(t *testing.T) {
-	srv, cleanup := blossomTestServer(t)
-	defer cleanup()
-	privKey := nostr.GeneratePrivateKey()
-
-	_, err := UploadFile(context.Background(), privKey,
-		filepath.Join(t.TempDir(), "nonexistent.flac"),
-		[]string{srv.URL}, nil)
+// TestPrepareUploadNotFound verifies PrepareUpload returns an error for a missing file.
+func TestPrepareUploadNotFound(t *testing.T) {
+	_, _, err := PrepareUpload(filepath.Join(t.TempDir(), "nonexistent.flac"))
 	if err == nil {
 		t.Error("expected error for missing file, got nil")
+	}
+}
+
+// TestPrepareUploadSHA256sKnownBeforeUpload verifies the key insight: all chunk
+// SHA-256s are populated by PrepareUpload before any network I/O occurs.
+func TestPrepareUploadSHA256sKnownBeforeUpload(t *testing.T) {
+	data := bytes.Repeat([]byte{0x42}, 1024)
+	tmp, err := os.CreateTemp(t.TempDir(), "*.bin")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	tmp.Write(data)
+	tmp.Close()
+
+	prepared, manifest, err := PrepareUpload(tmp.Name())
+	if err != nil {
+		t.Fatalf("PrepareUpload: %v", err)
+	}
+	if len(prepared) != 1 || len(manifest.Chunks) != 1 {
+		t.Fatalf("expected 1 chunk, got %d prepared, %d in manifest", len(prepared), len(manifest.Chunks))
+	}
+	if manifest.Chunks[0].SHA256 == "" {
+		t.Error("SHA-256 empty after PrepareUpload — chunk identity not known yet")
+	}
+	if len(manifest.Chunks[0].Servers) != 0 {
+		t.Error("Servers should be empty before UploadPrepared")
 	}
 }
