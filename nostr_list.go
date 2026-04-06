@@ -161,6 +161,45 @@ func UpdateEarmark(hexPrivKey string, updated Earmark) error {
 	return publishEarmarks(publishCtx, hexPrivKey, existing)
 }
 
+// NukeEarmarks deletes every Blossom chunk for every earmark and then
+// publishes an empty list to Nostr, effectively wiping the slate clean.
+// Like CleanupOldEarmarks, Blossom deletions are best-effort.
+// Returns the number of earmarks that were removed.
+func NukeEarmarks(hexPrivKey string) (int, error) {
+	earmarks, err := FetchEarmarks(hexPrivKey)
+	if err != nil {
+		return 0, fmt.Errorf("could not fetch earmarks: %w", err)
+	}
+	if len(earmarks) == 0 {
+		return 0, nil
+	}
+
+	// Delete all Blossom chunks in parallel.
+	blossomCtx, blossomCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	var wg sync.WaitGroup
+	for _, e := range earmarks {
+		if e.Blossom != nil {
+			e := e
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				DeleteManifestChunks(blossomCtx, hexPrivKey, e.Blossom)
+			}()
+		}
+	}
+	wg.Wait()
+	blossomCancel()
+
+	// Publish an empty list.
+	publishCtx, publishCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer publishCancel()
+	if err := publishEarmarks(publishCtx, hexPrivKey, []Earmark{}); err != nil {
+		return 0, fmt.Errorf("could not clear earmark list: %w", err)
+	}
+
+	return len(earmarks), nil
+}
+
 // CleanupOldEarmarks removes earmarks older than EarmarkMaxAge from the Nostr
 // list and deletes their Blossom chunks from all associated servers.
 //

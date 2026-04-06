@@ -624,6 +624,7 @@ func blossomResetCmd() *cobra.Command {
 // a progress summary is printed to stdout while waiting.
 func earmarksCmd() *cobra.Command {
 	var noTUI bool
+	var nuke bool
 
 	cmd := &cobra.Command{
 		Use:   "earmarks",
@@ -634,6 +635,8 @@ Tracks are played in the order they were earmarked. Files that exist on disk
 are used directly. Files that were uploaded to Blossom servers are downloaded,
 decrypted, and reassembled in parallel before playback begins.
 
+Use --nuke to delete all Blossom chunks and wipe the earmark list entirely.
+
 Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -641,6 +644,20 @@ Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
 			if err != nil || cfg.NostrPrivateKey == "" {
 				return fmt.Errorf("no Nostr private key configured — run: dirplay nostr-key <nsec_or_hex_key>")
 			}
+
+				if nuke {
+					fmt.Fprintln(cmd.OutOrStdout(), "Fetching earmarks...")
+					n, err := NukeEarmarks(cfg.NostrPrivateKey)
+					if err != nil {
+						return fmt.Errorf("nuke failed: %w", err)
+					}
+					if n == 0 {
+						fmt.Fprintln(cmd.OutOrStdout(), "Nothing to nuke — earmark list was already empty.")
+					} else {
+						fmt.Fprintf(cmd.OutOrStdout(), "Nuked %d earmark(s) and their Blossom chunks.\n", n)
+					}
+					return nil
+				}
 
 			fmt.Fprintln(cmd.OutOrStdout(), "Fetching earmarks from Nostr...")
 
@@ -760,5 +777,6 @@ Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
 	}
 
 	cmd.Flags().BoolVar(&noTUI, "no-tui", false, "Play without the terminal UI")
+	cmd.Flags().BoolVar(&nuke, "nuke", false, "Delete all Blossom chunks and wipe the earmark list")
 	return cmd
 }
