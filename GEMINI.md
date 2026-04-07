@@ -1,10 +1,10 @@
-# GEMINI.md - dirplay Context
+# GEMINI.md - derpy Context
 
-This file provides instructional context for Gemini when working on the `dirplay` project.
+This file provides instructional context for Gemini when working on the `derpy` project.
 
 ## Project Overview
 
-`dirplay` is a cross-platform command-line music player written in Go. It recursively scans a directory for audio files, shuffles them into a playlist, and provides a minimal Terminal User Interface (TUI) for playback control.
+`derpy` is a cross-platform command-line music player written in Go. It recursively scans a directory for audio files, shuffles them into a playlist, and provides a minimal Terminal User Interface (TUI) for playback control.
 
 ### Core Technologies
 - **Language:** Go (1.24.4+)
@@ -21,7 +21,7 @@ The project is structured into several Go source files:
 - `model.go`: The Bubble Tea TUI model and update/view logic.
 - `audio.go`: High-level `AudioPlayer` abstraction managing `beep` streamers and scrobble tracking.
 - `speaker.go`: Low-level speaker initialization and access (wraps `beep/speaker`).
-- `config.go`: Configuration persistence (stored in `~/.config/dirplay/config.json`).
+- `config.go`: Configuration persistence (stored in `~/.config/derpy/config.json`).
 - `listenbrainz.go`: Integration with ListenBrainz for "Now Playing" and scrobbling (at 25% progress).
 - `shuffle.go`: Playlist randomization logic.
 
@@ -33,24 +33,24 @@ The project is structured into several Go source files:
 go mod tidy
 
 # Build the executable
-go build -o dirplay
+go build -o derpy
 ```
 
 ### Running the Player
 ```bash
 # Play a directory (TUI mode)
-./dirplay /path/to/music
+./derpy /path/to/music
 
 # Play with keyword filtering (matches filename or relative path)
 # Shuffling still applies to the filtered results.
-./dirplay /path/to/music jesus gospel
+./derpy /path/to/music jesus gospel
 
 # Play without TUI
-./dirplay --no-tui /path/to/music
+./derpy --no-tui /path/to/music
 ```
 
 # Configure ListenBrainz token
-./dirplay token YOUR_LISTENBRAINZ_TOKEN
+./derpy token YOUR_LISTENBRAINZ_TOKEN
 ```
 
 ## Development Conventions
@@ -59,7 +59,7 @@ go build -o dirplay
 - **Audio Safety:** Use `speakerLock()` and `speakerUnlock()` when modifying audio state that the speaker might be reading.
 - **Metadata:** Prefer ID3/Metadata tags for display; fallback to filenames if tags are missing.
 - **External Integration:**
-    - **ListenBrainz:** Tokens are loaded from `~/.config/dirplay/config.json` or the `LISTENBRAINZ_TOKEN` environment variable.
+    - **ListenBrainz:** Tokens are loaded from `~/.config/derpy/config.json` or the `LISTENBRAINZ_TOKEN` environment variable.
     - **Track Notes:** Pressing `n` appends the current track to `~/track-notes.md`.
     - **File Deletion:** Pressing `d` deletes the current file from disk and advances the playlist.
 

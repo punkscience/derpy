@@ -9,7 +9,7 @@ import (
 
 func TestScanMusicDirectory(t *testing.T) {
 	// Create a temporary directory structure
-	tmpDir, err := os.MkdirTemp("", "dirplay-test")
+	tmpDir, err := os.MkdirTemp("", "derpy-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}

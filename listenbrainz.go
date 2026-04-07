@@ -13,7 +13,7 @@ type ListenBrainzClient struct {
 }
 
 // NewListenBrainzClient creates a new ListenBrainz client if a token is available.
-// It checks ~/.config/dirplay/config.json first, then falls back to LISTENBRAINZ_TOKEN env var.
+// It checks ~/.config/derpy/config.json first, then falls back to LISTENBRAINZ_TOKEN env var.
 func NewListenBrainzClient() *ListenBrainzClient {
 	token := LoadListenBrainzToken()
 	if token == "" {

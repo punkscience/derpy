@@ -33,7 +33,7 @@ func speakerInit(sampleRate beep.SampleRate, bufferSize int) error {
 
 	var err error
 	spkClient, err = pulse.NewClient(
-		pulse.ClientApplicationName("dirplay"),
+		pulse.ClientApplicationName("derpy"),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to connect to PulseAudio: %w", err)

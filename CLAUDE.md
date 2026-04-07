@@ -4,18 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**dirplay** is a terminal-based music player in Go. It recursively scans a directory for audio files, shuffles them, and plays them with a Bubble Tea TUI. ListenBrainz scrobbling is optional via `LISTENBRAINZ_TOKEN` env var.
+**derpy** is a terminal-based music player in Go. It recursively scans a directory for audio files, shuffles them, and plays them with a Bubble Tea TUI. ListenBrainz scrobbling is optional via `LISTENBRAINZ_TOKEN` env var.
 
 ## Build & Run
 
 ```bash
 # No system dev headers required — PulseAudio/PipeWire is used at runtime
 go mod tidy
-go build -o dirplay
+go build -o derpy
 
 # Run
-./dirplay <music_directory>
-./dirplay --no-tui <music_directory>
+./derpy <music_directory>
+./derpy --no-tui <music_directory>
 ```
 
 ## Architecture

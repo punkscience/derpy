@@ -1,10 +1,10 @@
-# App: dirplay
+# App: derpy
 
 ## Description
 
 A command-line application that will play music from a specified folder. 
 
-Example: dirplay c:\Users\me\Music
+Example: derpy c:\Users\me\Music
 
 ## Features
 
@@ -19,14 +19,14 @@ Example: dirplay c:\Users\me\Music
 ## Nostr Integration
 
 [x] Pressing [E] while a track is playing earmarks the track to a private NIP-51 list on Nostr (kind 30001, NIP-44 encrypted — only the key holder can read it).
-[x] The earmark list syncs across any device sharing the same Nostr key; `dirplay list` fetches and prints it anywhere.
+[x] The earmark list syncs across any device sharing the same Nostr key; `derpy list` fetches and prints it anywhere.
 [x] Earmarks include artist, album, title, path, and timestamp; stored as NIP-44 ciphertext so relays see only encrypted blobs.
-[x] The user's Nostr private key (nsec1... or raw hex) can be stored via `dirplay nostr-key <key>` and is persisted in ~/.config/dirplay/config.json (0600 permissions).
+[x] The user's Nostr private key (nsec1... or raw hex) can be stored via `derpy nostr-key <key>` and is persisted in ~/.config/derpy/config.json (0600 permissions).
 [x] If no key is configured when [E] is pressed, the TUI prompts for inline key entry (masked input); the key is saved for future use after the first earmark.
 [x] Earmarks are published to: relay.damus.io, nos.lol, relay.primal.net, nostr.wine — at least one must succeed.
-[x] Offline earmark queue: earmarks are written to ~/.config/dirplay/queue.json immediately on [E] press and synced to Nostr on next startup when connectivity is available.
+[x] Offline earmark queue: earmarks are written to ~/.config/derpy/queue.json immediately on [E] press and synced to Nostr on next startup when connectivity is available.
 [x] Duplicate detection: earmarks are keyed by file path; re-earmarking the same file is a no-op with an "already earmarked" status message.
-[x] `dirplay earmarks` fetches the private list and plays all earmarked files as a playlist (files missing from disk are skipped with a warning).
+[x] `derpy earmarks` fetches the private list and plays all earmarked files as a playlist (files missing from disk are skipped with a warning).
 
 ### Phase 2 — Blossom Audio Upload (planned)
 
@@ -37,7 +37,7 @@ file on disk.
 **Why chunking is required:** public Blossom servers enforce a ~20 MB upload
 limit. A typical FLAC is 40–100 MB. Files must be split before upload.
 
-#### Upload flow (`dirplay upload` or triggered from [E] earmark)
+#### Upload flow (`derpy upload` or triggered from [E] earmark)
 
 [ ] Split the file into 16 MB chunks (safe under the 20 MB server limit after
     encryption overhead).
@@ -68,7 +68,7 @@ limit. A typical FLAC is 40–100 MB. Files must be split before upload.
 }
 ```
 
-#### Download + playback flow (`dirplay earmarks` on a remote device)
+#### Download + playback flow (`derpy earmarks` on a remote device)
 
 [ ] On a device where the local file is missing, detect the `blossom` field in
     the earmark.
@@ -89,10 +89,10 @@ limit. A typical FLAC is 40–100 MB. Files must be split before upload.
     - `https://blossom.band`
     - `https://cdn.satellite.earth`
     - `https://nostr.build`
-[ ] `dirplay blossom list` — show active server list.
-[ ] `dirplay blossom add <url>` — add a server.
-[ ] `dirplay blossom remove <url>` — remove a server.
-[ ] `dirplay blossom reset` — reset to built-in defaults.
+[ ] `derpy blossom list` — show active server list.
+[ ] `derpy blossom add <url>` — add a server.
+[ ] `derpy blossom remove <url>` — remove a server.
+[ ] `derpy blossom reset` — reset to built-in defaults.
 
 #### Authentication
 
@@ -113,19 +113,19 @@ limit. A typical FLAC is 40–100 MB. Files must be split before upload.
 ## Public Nostr Post ([P] key)
 
 [x] Pressing [P] while a track is playing searches Bandcamp and YouTube for listen links, then publishes a public kind-1 Nostr note.
-[x] Note format: "[npub] is really digging [title] by [artist] right now! #music #dirplay" with Bandcamp/YouTube links appended if found.
+[x] Note format: "[npub] is really digging [title] by [artist] right now! #music #derpy" with Bandcamp/YouTube links appended if found.
 [x] Gracefully handles missing metadata (no artist, no title, etc.).
 [x] Reuses the same inline key-entry flow as [N]; key entry triggered by [P] routes back to a public post rather than an earmark.
 
 ## ListenBrainz Integration
 
-[x] Optional scrobbling via LISTENBRAINZ_TOKEN env var or `dirplay token <token>` command.
+[x] Optional scrobbling via LISTENBRAINZ_TOKEN env var or `derpy token <token>` command.
 [x] "Playing now" is submitted immediately; scrobble fires at 25% completion (minimum 30s tracks).
 
 ## Other Features
 
-[x] Keyword filtering with AND/OR/parentheses expression syntax (`dirplay jazz AND piano`).
-[x] Default source directory saved via `dirplay --set-default-source <dir>`.
+[x] Keyword filtering with AND/OR/parentheses expression syntax (`derpy jazz AND piano`).
+[x] Default source directory saved via `derpy --set-default-source <dir>`.
 [x] MPRIS2 D-Bus service on Linux for playerctl/Waybar integration.
 [x] [D] key deletes the current track from disk and advances to the next.
 

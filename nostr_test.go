@@ -168,12 +168,12 @@ func TestPublicNoteContent_BandcampPreferred(t *testing.T) {
 			priv := nostr.GeneratePrivateKey()
 			npub, _ := npubFromPrivateKey(priv)
 			content := fmt.Sprintf(
-				"%s is really digging %s by %s right now! #music #dirplay\n\n%s",
+				"%s is really digging %s by %s right now! #music #derpy\n\n%s",
 				npub, "The Song", "Test Artist", link,
 			)
 			for _, want := range []string{
 				"is really digging The Song by Test Artist right now!",
-				"#music #dirplay",
+				"#music #derpy",
 				"bandcamp.com",
 			} {
 				if !strings.Contains(content, want) {
@@ -238,7 +238,7 @@ func TestPublicNoteContent_MissingMetadata(t *testing.T) {
 		default:
 			digging = "this track"
 		}
-		content := fmt.Sprintf("npub1test is really digging %s right now! #music #dirplay", digging)
+		content := fmt.Sprintf("npub1test is really digging %s right now! #music #derpy", digging)
 		if !strings.Contains(content, tc.wantContains) {
 			t.Errorf("artist=%q title=%q: content %q does not contain %q",
 				tc.artist, tc.title, content, tc.wantContains)

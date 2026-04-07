@@ -11,7 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"dirplay/internal/filter"
+	"derpy/internal/filter"
 )
 
 func main() {
@@ -20,16 +20,16 @@ func main() {
 	}
 }
 
-// rootCmd builds the top-level Cobra command for dirplay.
+// rootCmd builds the top-level Cobra command for derpy.
 func rootCmd() *cobra.Command {
 	var noTUI bool
 	var source string
 	var setDefaultSource string
 
 	cmd := &cobra.Command{
-		Use:   "dirplay [--source <dir>] [--set-default-source <dir>] [expression...]",
+		Use:   "derpy [--source <dir>] [--set-default-source <dir>] [expression...]",
 		Short: "Terminal music player — shuffles and plays a directory of audio files",
-		Long: `dirplay scans a directory recursively for audio files and plays them shuffled.
+		Long: `derpy scans a directory recursively for audio files and plays them shuffled.
 
 Keyword expression syntax (AND binds tighter than OR):
   jazz AND piano          path must contain both "jazz" and "piano"
@@ -38,7 +38,7 @@ Keyword expression syntax (AND binds tighter than OR):
   "jazz piano"            exact phrase match
 
 Multiple expression arguments are joined with OR:
-  dirplay jazz blues  →  jazz OR blues
+  derpy jazz blues  →  jazz OR blues
 
 Matching is case-insensitive against the full file path.`,
 		Args: cobra.ArbitraryArgs,
@@ -96,12 +96,12 @@ func tokenCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "token <listenbrainz_token>",
 		Short: "Save a ListenBrainz user token to the config file",
-		Long: `Save your ListenBrainz user token to ~/.config/dirplay/config.json.
+		Long: `Save your ListenBrainz user token to ~/.config/derpy/config.json.
 
 The token is read from the config file on startup (before checking the
 LISTENBRAINZ_TOKEN environment variable). Pass an empty string to clear it:
 
-  dirplay token ""`,
+  derpy token ""`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			token := args[0]
@@ -133,7 +133,7 @@ func nostrKeyCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "nostr-key <nsec_or_hex_key>",
 		Short: "Save a Nostr private key to the config file",
-		Long: `Save your Nostr private key to ~/.config/dirplay/config.json.
+		Long: `Save your Nostr private key to ~/.config/derpy/config.json.
 
 The key is used to sign and publish track-earmark notes to public Nostr relays
 when you press [E] while a track is playing.
@@ -146,7 +146,7 @@ The config file is stored with 0600 permissions, but treat it like a password.
 
 Pass an empty string to clear the saved key:
 
-  dirplay nostr-key ""`,
+  derpy nostr-key ""`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rawInput := args[0]
@@ -177,7 +177,7 @@ Pass an empty string to clear the saved key:
 			}
 			path, _ := configFilePath()
 			fmt.Printf("Nostr private key saved to %s\n", path)
-			fmt.Println("Press [E] in dirplay to earmark the current track on Nostr.")
+			fmt.Println("Press [E] in derpy to earmark the current track on Nostr.")
 			return nil
 		},
 	}
@@ -317,12 +317,12 @@ func listCmd() *cobra.Command {
 		Short: "Print your private Nostr earmark list",
 		Long: `Fetch and decrypt your private earmark list from Nostr relays.
 
-Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
+Requires a Nostr private key saved via 'derpy nostr-key <key>'.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := LoadConfig()
 			if err != nil || cfg.NostrPrivateKey == "" {
-				return fmt.Errorf("no Nostr private key configured — run: dirplay nostr-key <nsec_or_hex_key>")
+				return fmt.Errorf("no Nostr private key configured — run: derpy nostr-key <nsec_or_hex_key>")
 			}
 
 			fmt.Fprintln(cmd.OutOrStdout(), "Fetching earmarks from Nostr...")
@@ -367,7 +367,7 @@ func relayCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "relay",
 		Short: "Manage the Nostr relay list",
-		Long: `Manage the list of Nostr relay WebSocket URLs that dirplay publishes to
+		Long: `Manage the list of Nostr relay WebSocket URLs that derpy publishes to
 and fetches from.
 
 When no relays are configured the built-in defaults are used. Adding even one
@@ -637,12 +637,12 @@ decrypted, and reassembled in parallel before playback begins.
 
 Use --nuke to delete all Blossom chunks and wipe the earmark list entirely.
 
-Requires a Nostr private key saved via 'dirplay nostr-key <key>'.`,
+Requires a Nostr private key saved via 'derpy nostr-key <key>'.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := LoadConfig()
 			if err != nil || cfg.NostrPrivateKey == "" {
-				return fmt.Errorf("no Nostr private key configured — run: dirplay nostr-key <nsec_or_hex_key>")
+				return fmt.Errorf("no Nostr private key configured — run: derpy nostr-key <nsec_or_hex_key>")
 			}
 
 				if nuke {

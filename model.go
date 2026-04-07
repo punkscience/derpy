@@ -445,7 +445,7 @@ func (m *PlayerModel) View() string {
 	var content strings.Builder
 
 	// Title
-	content.WriteString(titleStyle.Render("♪ dirplay"))
+	content.WriteString(titleStyle.Render("♪ derpy"))
 	content.WriteString("\n\n")
 
 	// Current track

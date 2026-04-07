@@ -14,7 +14,7 @@ import (
 const (
 	// earmarkListTag is the "d" tag that identifies the earmark list event.
 	// Using a namespaced tag avoids clashing with other apps' kind-30001 lists.
-	earmarkListTag = "dirplay-earmarks"
+	earmarkListTag = "derpy-earmarks"
 
 	// earmarkKind is the NIP-51 "categorized bookmarks" kind.
 	// It is an addressable event: relays keep only the latest version per (pubkey, kind, d).

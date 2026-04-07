@@ -1,12 +1,12 @@
-# dirplay
+# derpy
 
 A terminal music player with an opinion: shuffle everything, earmark what's hitting right, let the list expire.
 
 ## The idea
 
-Most music software asks you to curate — to build playlists deliberately, to rate things, to organise. dirplay takes the opposite approach. You point it at a directory, it shuffles everything, and you just listen. No queue management. No star ratings. No decisions.
+Most music software asks you to curate — to build playlists deliberately, to rate things, to organise. derpy takes the opposite approach. You point it at a directory, it shuffles everything, and you just listen. No queue management. No star ratings. No decisions.
 
-When something stops you mid-listen — when a track is exactly right for the moment — you press `E` to earmark it. That's the only act of curation dirplay asks of you.
+When something stops you mid-listen — when a track is exactly right for the moment — you press `E` to earmark it. That's the only act of curation derpy asks of you.
 
 Earmarks expire after 30 days. This is intentional. The list isn't a permanent archive; it's a snapshot of what's resonating *right now*. As your mood and context shift, the list empties and refills with something new. You're forced to keep discovering rather than retreating to the same familiar tracks.
 
@@ -14,11 +14,11 @@ Earmarks expire after 30 days. This is intentional. The list isn't a permanent a
 
 - Recursively scans a directory for audio files and shuffles them
 - Minimal TUI: current track, progress bar, nothing else
-- Filter playback by keyword expression: `dirplay jazz AND piano`, `dirplay "blue note" OR prestige`
+- Filter playback by keyword expression: `derpy jazz AND piano`, `derpy "blue note" OR prestige`
 - `[E]` earmarks the current track — encrypts it, uploads it to Blossom servers, and saves the manifest to a private Nostr list that follows you across devices
 - `[P]` publishes a public Nostr note about what you're listening to, with a Bandcamp or YouTube link if one can be found
 - `[D]` deletes the current file from disk
-- `dirplay earmarks` plays your earmarked tracks as a playlist — using the local file if it exists, downloading and decrypting from Blossom if not
+- `derpy earmarks` plays your earmarked tracks as a playlist — using the local file if it exists, downloading and decrypting from Blossom if not
 - Earmarks older than 30 days are automatically purged on startup, along with their uploaded audio chunks
 
 ## Installation
@@ -26,31 +26,31 @@ Earmarks expire after 30 days. This is intentional. The list isn't a permanent a
 Requires Go 1.21+. No system audio headers needed — audio runs over PulseAudio/PipeWire via pure Go.
 
 ```bash
-git clone https://github.com/punkscience/dirplay
-cd dirplay
-go build -o dirplay
+git clone https://github.com/punkscience/derpy
+cd derpy
+go build -o derpy
 ```
 
 ## Usage
 
 ```bash
 # Play everything in a directory, shuffled
-dirplay --source ~/Music
+derpy --source ~/Music
 
 # Save a default source so you don't have to type it
-dirplay --set-default-source ~/Music
-dirplay
+derpy --set-default-source ~/Music
+derpy
 
 # Filter by keyword expression
-dirplay jazz AND piano
-dirplay "kind of blue" OR "a love supreme"
-dirplay (jazz OR blues) AND live
+derpy jazz AND piano
+derpy "kind of blue" OR "a love supreme"
+derpy (jazz OR blues) AND live
 
 # Play your earmarked tracks
-dirplay earmarks
+derpy earmarks
 
 # Print the earmark list
-dirplay list
+derpy list
 ```
 
 ## Controls
@@ -71,33 +71,33 @@ Earmarks and public posts require a Nostr private key. Everything earmarked is N
 
 ```bash
 # Save your key (accepts nsec1... bech32 or raw hex)
-dirplay nostr-key nsec1...
+derpy nostr-key nsec1...
 
 # The app will also prompt for it inline the first time you press [E] or [P]
 ```
 
 ## Blossom setup
 
-When you earmark a track, dirplay encrypts the audio file (AES-256-GCM) and uploads it to Blossom servers in 16 MB chunks. This means `dirplay earmarks` works on any machine with the same Nostr key — even one that has never seen the original files.
+When you earmark a track, derpy encrypts the audio file (AES-256-GCM) and uploads it to Blossom servers in 16 MB chunks. This means `derpy earmarks` works on any machine with the same Nostr key — even one that has never seen the original files.
 
 The default servers are `blossom.band`, `cdn.satellite.earth`, and `nostr.build`. You can manage the list:
 
 ```bash
-dirplay blossom list
-dirplay blossom add https://your.server.com
-dirplay blossom remove https://blossom.band
-dirplay blossom reset
+derpy blossom list
+derpy blossom add https://your.server.com
+derpy blossom remove https://blossom.band
+derpy blossom reset
 ```
 
-If you have a kind-10063 Nostr event advertising your preferred Blossom servers, dirplay will discover and use those automatically.
+If you have a kind-10063 Nostr event advertising your preferred Blossom servers, derpy will discover and use those automatically.
 
 ## Relay setup
 
 ```bash
-dirplay relay list
-dirplay relay add wss://relay.example.com
-dirplay relay remove wss://relay.damus.io
-dirplay relay reset
+derpy relay list
+derpy relay add wss://relay.example.com
+derpy relay remove wss://relay.damus.io
+derpy relay reset
 ```
 
 Defaults: `relay.damus.io`, `nos.lol`, `relay.primal.net`, `nostr.wine`
@@ -105,7 +105,7 @@ Defaults: `relay.damus.io`, `nos.lol`, `relay.primal.net`, `nostr.wine`
 ## ListenBrainz
 
 ```bash
-dirplay token your_listenbrainz_token
+derpy token your_listenbrainz_token
 # or export LISTENBRAINZ_TOKEN=...
 ```
 
@@ -122,5 +122,5 @@ MP3, FLAC, WAV, OGG, M4A, AAC
 - MPRIS2 D-Bus service on Linux — works with `playerctl`, Waybar, and anything else that speaks MPRIS
 - Nostr via [nbd-wtf/go-nostr](https://github.com/nbd-wtf/go-nostr), NIP-44 encryption, NIP-51 private lists, NIP-65 relay discovery
 - Blossom: BUD-01/BUD-02 blob storage, BUD-11 Nostr keypair auth, kind-10063 server discovery
-- Config at `~/.config/dirplay/config.json` (0600 permissions)
-- Offline queue at `~/.config/dirplay/queue.json` — earmarks survive without internet and sync when connectivity returns
+- Config at `~/.config/derpy/config.json` (0600 permissions)
+- Offline queue at `~/.config/derpy/queue.json` — earmarks survive without internet and sync when connectivity returns

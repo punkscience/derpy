@@ -6,13 +6,13 @@ import (
 	"path/filepath"
 )
 
-// configDir returns the path to dirplay's config directory (~/.config/dirplay).
+// configDir returns the path to derpy's config directory (~/.config/derpy).
 func configDir() (string, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(base, "dirplay"), nil
+	return filepath.Join(base, "derpy"), nil
 }
 
 // configFilePath returns the path to the config file.
@@ -24,7 +24,7 @@ func configFilePath() (string, error) {
 	return filepath.Join(dir, "config.json"), nil
 }
 
-// Config holds all persisted dirplay configuration.
+// Config holds all persisted derpy configuration.
 type Config struct {
 	ListenBrainzToken string `json:"listenbrainz_token,omitempty"`
 	DefaultSource     string `json:"default_source,omitempty"`
@@ -33,7 +33,7 @@ type Config struct {
 	// The file is written with 0o600 permissions, but users should still treat
 	// this value as a secret and never share the config file.
 	NostrPrivateKey string `json:"nostr_private_key,omitempty"`
-	// NostrRelays is the list of relay WebSocket URLs dirplay publishes to and
+	// NostrRelays is the list of relay WebSocket URLs derpy publishes to and
 	// fetches from. When empty, defaultNostrRelays in nostr.go is used.
 	NostrRelays []string `json:"nostr_relays,omitempty"`
 	// BlossomServers is the list of Blossom server base URLs used for audio

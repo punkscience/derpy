@@ -8,7 +8,7 @@ import (
 
 // withTempQueue sets the config directory (via HOME) to a temp directory for
 // the duration of fn, then restores it. This isolates queue tests from the
-// real ~/.config/dirplay/queue.json.
+// real ~/.config/derpy/queue.json.
 func withTempQueue(t *testing.T, fn func()) {
 	t.Helper()
 	origHome := os.Getenv("HOME")
@@ -119,13 +119,13 @@ func TestSaveQueueAtomicWrite(t *testing.T) {
 		}
 
 		home := os.Getenv("HOME")
-		path := filepath.Join(home, ".config", "dirplay", "queue.json")
+		path := filepath.Join(home, ".config", "derpy", "queue.json")
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			t.Errorf("queue file not found at expected path: %s", path)
 		}
 
 		// No stray temp files should remain.
-		dir := filepath.Join(home, ".config", "dirplay")
+		dir := filepath.Join(home, ".config", "derpy")
 		entries, _ := os.ReadDir(dir)
 		for _, entry := range entries {
 			if filepath.Ext(entry.Name()) == ".tmp" {
