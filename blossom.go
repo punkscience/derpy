@@ -501,7 +501,7 @@ func DownloadAndReassemble(ctx context.Context, manifest *BlossomManifest, progr
 	if ext == "" {
 		ext = ".audio" // fallback for manifests created before this field was added
 	}
-	tmp, err := os.CreateTemp("", "dirplay-*"+ext)
+	tmp, err := os.CreateTemp("", "derpy-*"+ext)
 	if err != nil {
 		return "", fmt.Errorf("could not create temp file: %w", err)
 	}

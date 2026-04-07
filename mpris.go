@@ -2,7 +2,7 @@
 
 package main
 
-// mpris.go implements the MPRIS2 D-Bus interface for dirplay.
+// mpris.go implements the MPRIS2 D-Bus interface for derpy.
 //
 // MPRIS2 spec: https://specifications.freedesktop.org/mpris-spec/latest/
 //
@@ -97,7 +97,7 @@ type mprisStateSnapshot struct {
 	trackPath    string // current file path; used as title fallback
 }
 
-// MPRISService registers dirplay on the session D-Bus and handles MPRIS2
+// MPRISService registers derpy on the session D-Bus and handles MPRIS2
 // method calls by forwarding them as messages into the Bubble Tea program.
 type MPRISService struct {
 	conn    *dbus.Conn
@@ -126,7 +126,7 @@ func NewMPRISService(program *tea.Program) (*MPRISService, error) {
 
 	// Request the well-known service name.
 	reply, err := conn.RequestName(
-		"org.mpris.MediaPlayer2.dirplay",
+		"org.mpris.MediaPlayer2.derpy",
 		dbus.NameFlagDoNotQueue,
 	)
 	if err != nil {
@@ -213,7 +213,7 @@ func (s *MPRISService) GetAll(iface string) (map[string]dbus.Variant, *dbus.Erro
 // Set is a no-op for read-only properties; writable properties (Rate, Volume,
 // LoopStatus, Shuffle) are accepted silently so clients do not error.
 func (s *MPRISService) Set(iface, prop string, value dbus.Variant) *dbus.Error {
-	// All writable properties are acknowledged but not applied — dirplay does
+	// All writable properties are acknowledged but not applied — derpy does
 	// not yet support runtime rate/volume/loop changes via MPRIS.
 	return nil
 }
@@ -228,7 +228,7 @@ func (s *MPRISService) allProperties(iface string) map[string]dbus.Variant {
 			"CanQuit":             dbus.MakeVariant(false),
 			"CanRaise":            dbus.MakeVariant(false),
 			"HasTrackList":        dbus.MakeVariant(false),
-			"Identity":            dbus.MakeVariant("dirplay"),
+			"Identity":            dbus.MakeVariant("derpy"),
 			"SupportedMimeTypes":  dbus.MakeVariant([]string{"audio/mpeg", "audio/flac", "audio/ogg", "audio/wav"}),
 			"SupportedUriSchemes": dbus.MakeVariant([]string{"file"}),
 		}
@@ -265,7 +265,7 @@ func (s *MPRISService) allProperties(iface string) map[string]dbus.Variant {
 // Raise is a no-op (terminal UI has no window to raise).
 func (s *MPRISService) Raise() *dbus.Error { return nil }
 
-// Quit is a no-op; dirplay is controlled via the TUI keyboard.
+// Quit is a no-op; derpy is controlled via the TUI keyboard.
 func (s *MPRISService) Quit() *dbus.Error { return nil }
 
 // ---- org.mpris.MediaPlayer2.Player methods ----------------------------------
@@ -326,7 +326,7 @@ func (s *MPRISService) SetPosition(trackId dbus.ObjectPath, positionMicros int64
 	s.mu.RLock()
 	currentIndex := s.snap.currentIndex
 	s.mu.RUnlock()
-	expected := dbus.ObjectPath(fmt.Sprintf("/org/dirplay/track/%d", currentIndex))
+	expected := dbus.ObjectPath(fmt.Sprintf("/org/derpy/track/%d", currentIndex))
 	if trackId != expected {
 		// Per spec: "If the TrackId argument is not the same as the current
 		// TrackId, this request should be ignored."
@@ -337,7 +337,7 @@ func (s *MPRISService) SetPosition(trackId dbus.ObjectPath, positionMicros int64
 	return nil
 }
 
-// OpenUri is a no-op; dirplay plays from a directory, not individual URIs.
+// OpenUri is a no-op; derpy plays from a directory, not individual URIs.
 func (s *MPRISService) OpenUri(uri string) *dbus.Error { return nil }
 
 // ---- State change notifications ---------------------------------------------
@@ -435,7 +435,7 @@ func playbackStatusFromSnap(snap mprisStateSnapshot) string {
 // metadataFromSnap builds the MPRIS2 Metadata map from a snapshot.
 // The xesam:artist field must be a []string per the MPRIS2 spec.
 func metadataFromSnap(snap mprisStateSnapshot) map[string]dbus.Variant {
-	trackId := dbus.ObjectPath(fmt.Sprintf("/org/dirplay/track/%d", snap.currentIndex))
+	trackId := dbus.ObjectPath(fmt.Sprintf("/org/derpy/track/%d", snap.currentIndex))
 
 	artist := snap.artist
 	if artist == "" {

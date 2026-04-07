@@ -11,7 +11,7 @@ import (
 )
 
 // defaultNostrRelays is the fallback relay list used when the user has not
-// configured any relays via 'dirplay relay add'.
+// configured any relays via 'derpy relay add'.
 // relay.damus.io and nos.lol are generally open for writes.
 // relay.nostr.band is primarily a read/indexer relay — useful for fetches.
 var defaultNostrRelays = []string{
@@ -213,7 +213,7 @@ func PublishNostrTrackNote(privateKey, artist, title, album string) error {
 	}
 
 	content := fmt.Sprintf(
-		"%s is really digging %s right now! #music #dirplay%s",
+		"%s is really digging %s right now! #music #derpy%s",
 		npub,
 		digging,
 		linkSection,

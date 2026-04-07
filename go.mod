@@ -1,4 +1,4 @@
-module dirplay
+module derpy
 
 go 1.24.4
 

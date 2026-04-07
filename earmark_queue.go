@@ -15,7 +15,7 @@ func queueFilePath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("could not determine home directory: %w", err)
 	}
-	return filepath.Join(home, ".config", "dirplay", "queue.json"), nil
+	return filepath.Join(home, ".config", "derpy", "queue.json"), nil
 }
 
 // LoadQueue reads the offline earmark queue from disk.

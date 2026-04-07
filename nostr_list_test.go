@@ -146,7 +146,7 @@ func TestEarmarkTimestamp(t *testing.T) {
 	}
 }
 
-// TestListCmdNoKey verifies that 'dirplay list' returns an error when no
+// TestListCmdNoKey verifies that 'derpy list' returns an error when no
 // Nostr key is configured, rather than hanging or panicking.
 func TestListCmdNoKey(t *testing.T) {
 	// Temporarily redirect config loading to return an empty config.
