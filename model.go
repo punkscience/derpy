@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -130,8 +131,9 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.nostrKeyBuffer = m.nostrKeyBuffer[:len(m.nostrKeyBuffer)-1]
 				}
 			default:
-				// Append printable characters only (ignore control sequences).
-				if len(msg.Runes) == 1 {
+				// Append printable characters only (ignore control sequences and null
+				// bytes, which Windows terminals can inject during clipboard paste).
+				if len(msg.Runes) == 1 && unicode.IsPrint(msg.Runes[0]) {
 					m.nostrKeyBuffer += string(msg.Runes)
 				}
 			}

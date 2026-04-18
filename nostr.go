@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
@@ -96,7 +97,15 @@ func queryRelays(ctx context.Context, relays []string, filter nostr.Filter) *nos
 // resolvePrivateKey accepts either a bech32 nsec1... string or a raw 64-char
 // hex string and always returns the raw hex private key.
 func resolvePrivateKey(key string) (string, error) {
+	// Strip whitespace and any non-printable characters (e.g. null bytes that
+	// Windows terminal emulators can inject during clipboard paste).
 	key = strings.TrimSpace(key)
+	key = strings.Map(func(r rune) rune {
+		if unicode.IsPrint(r) {
+			return r
+		}
+		return -1
+	}, key)
 	if strings.HasPrefix(key, "nsec1") {
 		prefix, val, err := nip19.Decode(key)
 		if err != nil {

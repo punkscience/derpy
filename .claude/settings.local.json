@@ -62,7 +62,8 @@
       "Bash(fnm --version)",
       "Bash(gemini --version)",
       "Read(//usr/local/lib/node_modules/@google/gemini-cli/bundle/**)",
-      "Bash(xargs sed:*)"
+      "Bash(xargs sed:*)",
+      "Bash(grep *)"
     ]
   }
 }
