@@ -272,6 +272,79 @@ func downloadChunk(ctx context.Context, serverURL, sha256hex string) ([]byte, er
 	return data, nil
 }
 
+// chunkExistsOnServer issues a BUD-01 HEAD request to check whether a blob is
+// still hosted on a particular server. Returns true on 200, false on 404, and
+// an error for any other condition (network failure, unexpected status). The
+// error is returned so callers can distinguish "definitely gone" (404) from
+// "could not tell" (server unreachable) — only the former should be treated as
+// authoritative evidence that a chunk has been deleted.
+func chunkExistsOnServer(ctx context.Context, serverURL, sha256hex string) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead,
+		serverURL+"/"+sha256hex, nil)
+	if err != nil {
+		return false, fmt.Errorf("could not build head request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("head request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound, http.StatusGone:
+		return false, nil
+	default:
+		return false, fmt.Errorf("server returned %d", resp.StatusCode)
+	}
+}
+
+// ChunkAvailable reports whether a chunk can still be fetched from at least
+// one of its listed servers. The semantics are conservative: a server that
+// answers 404 counts as "definitely missing", but a server that errors out
+// (timeout, DNS failure, 5xx) is treated as "unknown" and the chunk is assumed
+// available so a transient outage cannot trigger reconcile-driven deletion.
+//
+// In short: returns true unless every server returns an authoritative 404.
+func ChunkAvailable(ctx context.Context, chunk BlossomChunk) bool {
+	if len(chunk.Servers) == 0 {
+		// No servers recorded — we have no way to verify, so assume present.
+		return true
+	}
+	allDefinitelyMissing := true
+	for _, server := range chunk.Servers {
+		exists, err := chunkExistsOnServer(ctx, server, chunk.SHA256)
+		if err != nil {
+			// Inconclusive — do not treat as missing.
+			allDefinitelyMissing = false
+			continue
+		}
+		if exists {
+			return true
+		}
+	}
+	return !allDefinitelyMissing
+}
+
+// ManifestComplete reports whether every chunk in the manifest is still
+// retrievable from at least one of its servers. A nil manifest returns false
+// (nothing to play). Used by reconcile to detect earmarks whose Blossom
+// chunks were deleted out-of-band (e.g. by another client) so the orphaned
+// listing can be cleaned up.
+func ManifestComplete(ctx context.Context, manifest *BlossomManifest) bool {
+	if manifest == nil {
+		return false
+	}
+	for _, chunk := range manifest.Chunks {
+		if !ChunkAvailable(ctx, chunk) {
+			return false
+		}
+	}
+	return true
+}
+
 // deleteChunk sends a BUD-01 DELETE request for one blob on one server.
 // A 404 response is treated as success (already gone).
 func deleteChunk(ctx context.Context, serverURL, sha256hex, hexPrivKey string) error {

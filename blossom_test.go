@@ -478,6 +478,193 @@ func TestDeleteManifestChunks_EmptyServers(t *testing.T) {
 	DeleteManifestChunks(context.Background(), nostr.GeneratePrivateKey(), manifest)
 }
 
+// --- Reconcile hypothesis tests -----------------------------------------
+//
+// These tests exist to answer a single investigative question: can the new
+// ReconcileEarmarks path silently wipe a user's earmark list when a Blossom
+// server misbehaves on HEAD requests? They target the predicate that drives
+// the decision (ManifestComplete / ChunkAvailable) and simulate the failure
+// modes most likely to occur against real-world Blossom implementations.
+
+// headBehavior controls how a simulated Blossom server responds to HEAD.
+type headBehavior int
+
+const (
+	headOKIfStored    headBehavior = iota // spec-compliant: 200 if stored, 404 if not
+	headAlways404                         // HEAD routing is broken: always 404
+	headAlways405                         // HEAD not implemented: 405 Method Not Allowed
+	headAlways500                         // server error on HEAD
+	headAlways200                         // catch-all front page returning 200
+)
+
+// reconcileTestServer starts a Blossom-shaped httptest server whose HEAD
+// behaviour is configurable. GETs always serve stored blobs correctly; only
+// HEAD is varied. The returned store map is pre-populated with one blob so
+// callers can assert "the blob IS there, but reconcile thinks it's gone".
+func reconcileTestServer(t *testing.T, behavior headBehavior, stored map[string][]byte) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		sum := strings.TrimPrefix(r.URL.Path, "/")
+		switch r.Method {
+		case http.MethodGet:
+			data, ok := stored[sum]
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			w.Write(data)
+		case http.MethodHead:
+			switch behavior {
+			case headOKIfStored:
+				if _, ok := stored[sum]; ok {
+					w.WriteHeader(http.StatusOK)
+				} else {
+					http.NotFound(w, r)
+				}
+			case headAlways404:
+				http.NotFound(w, r)
+			case headAlways405:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			case headAlways500:
+				http.Error(w, "boom", http.StatusInternalServerError)
+			case headAlways200:
+				w.WriteHeader(http.StatusOK)
+			}
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+	return httptest.NewServer(mux)
+}
+
+// TestReconcile_HypothesisBaseline: when a server implements HEAD correctly,
+// a stored blob is reported available. This is the control case.
+func TestReconcile_HypothesisBaseline(t *testing.T) {
+	sum := strings.Repeat("a", 64)
+	stored := map[string][]byte{sum: []byte("real blob")}
+
+	srv := reconcileTestServer(t, headOKIfStored, stored)
+	defer srv.Close()
+
+	chunk := BlossomChunk{SHA256: sum, Servers: []string{srv.URL}}
+	if !ChunkAvailable(context.Background(), chunk) {
+		t.Fatal("baseline: spec-compliant HEAD 200 should report chunk available")
+	}
+}
+
+// TestReconcile_HeadAlways404_WipesStoredBlob is the smoking gun. A real blob
+// is stored on the server (GET returns 200) but HEAD wrongly returns 404.
+// ChunkAvailable must therefore return false even though the data is present,
+// which would cause ReconcileEarmarks to mark the earmark as orphaned, delete
+// the real chunks, and republish a shortened list.
+func TestReconcile_HeadAlways404_WipesStoredBlob(t *testing.T) {
+	sum := strings.Repeat("b", 64)
+	stored := map[string][]byte{sum: []byte("real blob data")}
+
+	srv := reconcileTestServer(t, headAlways404, stored)
+	defer srv.Close()
+
+	// Sanity: GET really does return the blob. Use a raw HTTP call rather
+	// than downloadChunk so we don't hit the SHA-256 integrity check — the
+	// point of this test is to prove that a stored blob (GET=200) can still
+	// be classified as missing by the HEAD-only reconcile predicate.
+	resp, err := http.Get(srv.URL + "/" + sum)
+	if err != nil {
+		t.Fatalf("precondition: GET request failed: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !bytes.Equal(body, []byte("real blob data")) {
+		t.Fatalf("precondition: GET should return the blob — status=%d body=%q",
+			resp.StatusCode, body)
+	}
+
+	// The reconcile predicate: does the new code correctly notice the blob?
+	chunk := BlossomChunk{SHA256: sum, Servers: []string{srv.URL}}
+	if ChunkAvailable(context.Background(), chunk) {
+		t.Fatal("HEAD-404 case: chunk was reported available (safe)")
+	}
+	t.Log("CONFIRMED: HEAD-404 on a server that actually stores the blob " +
+		"causes ChunkAvailable=false → reconcile would delete the earmark.")
+}
+
+// TestReconcile_HeadAlways405_DoesNotWipe verifies that a server that returns
+// 405 on HEAD (common for implementations that only wired GET) is correctly
+// treated as "inconclusive" and does NOT cause reconcile to trigger.
+func TestReconcile_HeadAlways405_DoesNotWipe(t *testing.T) {
+	sum := strings.Repeat("c", 64)
+	stored := map[string][]byte{sum: []byte("real blob")}
+	srv := reconcileTestServer(t, headAlways405, stored)
+	defer srv.Close()
+
+	chunk := BlossomChunk{SHA256: sum, Servers: []string{srv.URL}}
+	if !ChunkAvailable(context.Background(), chunk) {
+		t.Fatal("HEAD-405 should be treated as inconclusive, not missing")
+	}
+}
+
+// TestReconcile_HeadAlways500_DoesNotWipe: transient server errors must not
+// trigger reconcile deletion.
+func TestReconcile_HeadAlways500_DoesNotWipe(t *testing.T) {
+	sum := strings.Repeat("d", 64)
+	stored := map[string][]byte{sum: []byte("real blob")}
+	srv := reconcileTestServer(t, headAlways500, stored)
+	defer srv.Close()
+
+	chunk := BlossomChunk{SHA256: sum, Servers: []string{srv.URL}}
+	if !ChunkAvailable(context.Background(), chunk) {
+		t.Fatal("HEAD-500 should be treated as inconclusive, not missing")
+	}
+}
+
+// TestReconcile_MultiServer_AllAuthoritative404_Wipes exercises the full
+// multi-server scenario the user most likely hit: an earmark whose chunk is
+// replicated across several servers, all of which answer HEAD with 404 (even
+// though the blob really exists). Every server is "authoritative", so
+// ChunkAvailable returns false and ManifestComplete returns false — the
+// reconcile pass would then drop the earmark from the list.
+func TestReconcile_MultiServer_AllAuthoritative404_Wipes(t *testing.T) {
+	sum := strings.Repeat("e", 64)
+	stored := map[string][]byte{sum: []byte("real chunk")}
+
+	srvA := reconcileTestServer(t, headAlways404, stored)
+	defer srvA.Close()
+	srvB := reconcileTestServer(t, headAlways404, stored)
+	defer srvB.Close()
+
+	manifest := &BlossomManifest{
+		Key: base64.StdEncoding.EncodeToString(make([]byte, 32)),
+		Chunks: []BlossomChunk{
+			{Index: 0, SHA256: sum, Servers: []string{srvA.URL, srvB.URL}},
+		},
+	}
+
+	if ManifestComplete(context.Background(), manifest) {
+		t.Fatal("manifest with broken HEAD on every server should report incomplete")
+	}
+	t.Log("CONFIRMED: multi-server manifest wiped by reconcile when every " +
+		"server mis-implements HEAD, regardless of whether the blob is stored.")
+}
+
+// TestReconcile_MixedServers_OneHonestHEAD_Saves: even one compliant server
+// in the chunk's server list should save the earmark from reconcile. This
+// verifies the "at least one available" semantic.
+func TestReconcile_MixedServers_OneHonestHEAD_Saves(t *testing.T) {
+	sum := strings.Repeat("f", 64)
+	stored := map[string][]byte{sum: []byte("real chunk")}
+
+	broken := reconcileTestServer(t, headAlways404, stored)
+	defer broken.Close()
+	honest := reconcileTestServer(t, headOKIfStored, stored)
+	defer honest.Close()
+
+	chunk := BlossomChunk{SHA256: sum, Servers: []string{broken.URL, honest.URL}}
+	if !ChunkAvailable(context.Background(), chunk) {
+		t.Fatal("a single compliant HEAD=200 server should keep the chunk available")
+	}
+}
+
 // TestPrepareUploadSHA256sKnownBeforeUpload verifies the key insight: all chunk
 // SHA-256s are populated by PrepareUpload before any network I/O occurs.
 func TestPrepareUploadSHA256sKnownBeforeUpload(t *testing.T) {

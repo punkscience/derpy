@@ -63,6 +63,23 @@ func TestParseExpr(t *testing.T) {
 				"/music/Classical/Bach/Goldberg Variations.flac",
 			},
 		},
+		{
+			// Implicit AND: adjacent words without operator
+			// "miles davis" → miles AND davis
+			expr: "miles davis",
+			want: []string{
+				"/music/Jazz/Miles Davis/Kind of Blue.mp3",
+			},
+		},
+		{
+			// Implicit AND across OR: jazz OR led zeppelin → jazz OR (led AND zeppelin)
+			expr: "jazz OR led zeppelin",
+			want: []string{
+				"/music/Jazz/Miles Davis/Kind of Blue.mp3",
+				"/music/Jazz/Bill Evans/Waltz for Debby.flac",
+				"/music/Rock/Led Zeppelin/Stairway.mp3",
+			},
+		},
 	}
 
 	for _, tc := range tests {

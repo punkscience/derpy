@@ -16,6 +16,11 @@ const (
 	// Using a namespaced tag avoids clashing with other apps' kind-30001 lists.
 	earmarkListTag = "derpy-earmarks"
 
+	// legacyEarmarkListTag is the "d" tag this app used before being renamed
+	// from "dirplay" to "derpy". Used exclusively by the one-shot migration
+	// in MigrateLegacyEarmarks; never queried during normal operation.
+	legacyEarmarkListTag = "dirplay-earmarks"
+
 	// earmarkKind is the NIP-51 "categorized bookmarks" kind.
 	// It is an addressable event: relays keep only the latest version per (pubkey, kind, d).
 	earmarkKind = 30001
@@ -57,12 +62,14 @@ func selfConvKey(hexPrivKey string) ([32]byte, error) {
 func FetchEarmarks(hexPrivKey string) ([]Earmark, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	return fetchEarmarksCtx(ctx, hexPrivKey)
+	return fetchEarmarksCtx(ctx, hexPrivKey, earmarkListTag)
 }
 
 // fetchEarmarksCtx is the context-aware inner implementation shared by
-// FetchEarmarks and AddEarmark.
-func fetchEarmarksCtx(ctx context.Context, hexPrivKey string) ([]Earmark, error) {
+// FetchEarmarks, AddEarmark, and the legacy-tag migration. The dTag argument
+// lets callers query alternate addressable identifiers (e.g. the legacy
+// "dirplay-earmarks" list) without duplicating the decrypt logic.
+func fetchEarmarksCtx(ctx context.Context, hexPrivKey, dTag string) ([]Earmark, error) {
 	pubHex, err := nostr.GetPublicKey(hexPrivKey)
 	if err != nil {
 		return nil, fmt.Errorf("could not derive public key: %w", err)
@@ -76,7 +83,7 @@ func fetchEarmarksCtx(ctx context.Context, hexPrivKey string) ([]Earmark, error)
 	filter := nostr.Filter{
 		Kinds:   []int{earmarkKind},
 		Authors: []string{pubHex},
-		Tags:    nostr.TagMap{"d": []string{earmarkListTag}},
+		Tags:    nostr.TagMap{"d": []string{dTag}},
 		Limit:   1,
 	}
 
@@ -121,7 +128,7 @@ func isDuplicateEarmark(existing []Earmark, e Earmark) bool {
 // the publish budget.
 func AddEarmark(hexPrivKey string, e Earmark) error {
 	fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	existing, _ := fetchEarmarksCtx(fetchCtx, hexPrivKey) // start fresh on error
+	existing, _ := fetchEarmarksCtx(fetchCtx, hexPrivKey, earmarkListTag) // start fresh on error
 	fetchCancel()
 
 	if isDuplicateEarmark(existing, e) {
@@ -138,7 +145,7 @@ func AddEarmark(hexPrivKey string, e Earmark) error {
 // attach a BlossomManifest to an existing earmark without changing its identity.
 func UpdateEarmark(hexPrivKey string, updated Earmark) error {
 	fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	existing, err := fetchEarmarksCtx(fetchCtx, hexPrivKey)
+	existing, err := fetchEarmarksCtx(fetchCtx, hexPrivKey, earmarkListTag)
 	fetchCancel()
 	if err != nil {
 		return fmt.Errorf("could not fetch earmarks: %w", err)

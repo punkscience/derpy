@@ -40,6 +40,12 @@ type Config struct {
 	// file uploads and downloads. When empty, defaultBlossomServers in
 	// blossom.go is used.
 	BlossomServers []string `json:"blossom_servers,omitempty"`
+	// LegacyEarmarksMigrated is set to true once the one-shot migration of
+	// earmarks from the old "dirplay-earmarks" d-tag to "derpy-earmarks" has
+	// completed (or been determined unnecessary). It exists solely so we never
+	// re-query relays for the legacy list after the first successful run —
+	// keeping relay load to an absolute minimum.
+	LegacyEarmarksMigrated bool `json:"legacy_earmarks_migrated,omitempty"`
 }
 
 // LoadNostrRelays returns the user-configured relay list, falling back to

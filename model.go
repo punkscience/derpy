@@ -32,12 +32,25 @@ type PlayerModel struct {
 	// D-Bus is unavailable or when running in --no-tui mode.
 	mpris *MPRISService
 
+	// program is a back-reference to the Bubble Tea program, used so that
+	// long-running background commands (earmark upload progress, etc.) can
+	// stream intermediate messages into the event loop via program.Send.
+	// It is nil in tests that construct a PlayerModel without a running program.
+	program *tea.Program
+
 	// Nostr key-entry state: when the user presses [E] or [P] and no key is
 	// configured, the TUI switches into a one-time key-entry mode.
 	nostrKeyEntry    bool   // true while waiting for the user to type their key
 	nostrKeyBuffer   string // accumulates characters typed by the user
 	nostrKeyForPost  bool   // true when key entry was triggered by [P] (public post) vs [E] (earmark)
 	nostrStatus      string // last Nostr result message shown to the user
+
+	// earmarkInFlight is true while a [E] earmark command is encrypting,
+	// uploading, or publishing. It serves two purposes: blocking a second
+	// [E] press so the two goroutines cannot race on the outbox/relay list,
+	// and inhibiting the track-change status clear so the in-progress line
+	// stays visible when a track rolls over mid-upload.
+	earmarkInFlight bool
 
 }
 
@@ -68,6 +81,16 @@ type queueFlushedMsg struct {
 // cleanupMsg is sent after the startup old-earmark cleanup completes.
 type cleanupMsg struct {
 	removed int // number of earmarks older than EarmarkMaxAge that were purged
+}
+
+// earmarkProgressMsg is streamed from the earmark background command so the
+// user sees live progress on a single status line instead of a blocking
+// "saving earmark..." message. chunksDone/chunksTotal are populated only for
+// the "uploading" phase.
+type earmarkProgressMsg struct {
+	phase       string // "encrypting", "uploading", or "publishing"
+	chunksDone  int
+	chunksTotal int
 }
 
 
@@ -124,6 +147,7 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.saveKeyAndPublish(key)
 				}
 				m.nostrStatus = "Nostr: saving earmark..."
+				m.earmarkInFlight = true
 				return m, m.saveKeyAndAddEarmark(key)
 			case "backspace", "ctrl+h":
 				if len(m.nostrKeyBuffer) > 0 {
@@ -183,6 +207,14 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// The earmark is written to the local queue first (guarantees no
 			// data loss), then a Nostr publish is attempted in the background.
 			if m.playing {
+				if m.earmarkInFlight {
+					// A previous earmark is still encrypting/uploading/publishing.
+					// Running a second one in parallel would race on both the
+					// local outbox and the addressable Nostr list, silently
+					// dropping one entry.
+					m.nostrStatus = "Nostr: earmark already in progress, please wait..."
+					return m, nil
+				}
 				cfg, err := LoadConfig()
 				if err != nil || cfg.NostrPrivateKey == "" {
 					// No key configured — enter inline key-entry mode.
@@ -193,6 +225,7 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				// Key is available: earmark to private Nostr list.
 				m.nostrStatus = "Nostr: saving earmark..."
+				m.earmarkInFlight = true
 				return m, m.saveEarmarkCmd(cfg.NostrPrivateKey)
 			}
 
@@ -341,6 +374,13 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.artist = msg.artist
 		m.title = msg.title
 		m.album = msg.album
+		// Reset stale Nostr status on track change so success/error messages
+		// from the previous track do not linger indefinitely. Only clear when
+		// idle — preserve the live progress line when a track rolls over
+		// mid-upload.
+		if !m.earmarkInFlight {
+			m.nostrStatus = ""
+		}
 		// Notify MPRIS clients that metadata and status have changed.
 		m.mpris.NotifyStateChanged(m)
 		m.mpris.EmitSeeked(m) // Position jumped to 0 on track change.
@@ -359,6 +399,10 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.loadCurrentTrack()
 
+	case earmarkProgressMsg:
+		m.nostrStatus = renderEarmarkProgress(msg)
+		return m, nil
+
 	case nostrPublishedMsg:
 		if msg.err != nil {
 			m.nostrStatus = fmt.Sprintf("Nostr: %s failed — %v", msg.action, msg.err)
@@ -370,6 +414,9 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.nostrStatus = "Nostr: earmark queued (offline — will sync later)"
 		} else {
 			m.nostrStatus = "Nostr: earmark saved!"
+		}
+		if msg.action == "earmark" {
+			m.earmarkInFlight = false
 		}
 		return m, nil
 
@@ -509,6 +556,40 @@ func (m *PlayerModel) View() string {
 	return content.String()
 }
 
+// renderEarmarkProgress turns an earmarkProgressMsg into a single-line status
+// string suitable for the Nostr status area. The "uploading" phase renders a
+// compact inline bar; the other phases render a simple label.
+func renderEarmarkProgress(msg earmarkProgressMsg) string {
+	switch msg.phase {
+	case "encrypting":
+		return "Nostr: encrypting..."
+	case "publishing":
+		return "Nostr: publishing..."
+	case "uploading":
+		return fmt.Sprintf("Nostr: uploading %s %d/%d",
+			renderInlineBar(msg.chunksDone, msg.chunksTotal, 12),
+			msg.chunksDone, msg.chunksTotal)
+	default:
+		return "Nostr: working..."
+	}
+}
+
+// renderInlineBar produces a compact bracketed progress bar of the given
+// character width. Safe against total <= 0 (renders an empty bar).
+func renderInlineBar(done, total, width int) string {
+	if total <= 0 || width <= 0 {
+		return "[" + strings.Repeat("─", max(width, 0)) + "]"
+	}
+	if done > total {
+		done = total
+	}
+	if done < 0 {
+		done = 0
+	}
+	filled := done * width / total
+	return "[" + strings.Repeat("█", filled) + strings.Repeat("─", width-filled) + "]"
+}
+
 // renderProgressBar renders a progress bar
 func (m *PlayerModel) renderProgressBar(width int) string {
 	if m.duration == 0 {
@@ -588,6 +669,7 @@ func (m *PlayerModel) publishToNostr(hexKey string) tea.Cmd {
 func (m *PlayerModel) saveEarmarkCmd(hexKey string) tea.Cmd {
 	artist, title, album := m.artist, m.title, m.album
 	path := m.playlist[m.currentIndex]
+	prog := m.program
 
 	return func() tea.Msg {
 		// Step 1: duplicate check before any work.
@@ -598,6 +680,7 @@ func (m *PlayerModel) saveEarmarkCmd(hexKey string) tea.Cmd {
 		}
 
 		// Step 2: encrypt locally — gives us all chunk SHA-256s immediately.
+		sendProgress(prog, earmarkProgressMsg{phase: "encrypting"})
 		prepared, manifest, err := PrepareUpload(path)
 		if err != nil {
 			return nostrPublishedMsg{action: "earmark", err: fmt.Errorf("could not encrypt file: %w", err)}
@@ -623,13 +706,18 @@ func (m *PlayerModel) saveEarmarkCmd(hexKey string) tea.Cmd {
 		}
 		uploadCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		if err := UploadPrepared(uploadCtx, hexKey, prepared, manifest, servers, nil); err != nil {
+		sendProgress(prog, earmarkProgressMsg{phase: "uploading", chunksDone: 0, chunksTotal: len(prepared)})
+		onChunk := func(done, total int) {
+			sendProgress(prog, earmarkProgressMsg{phase: "uploading", chunksDone: done, chunksTotal: total})
+		}
+		if err := UploadPrepared(uploadCtx, hexKey, prepared, manifest, servers, onChunk); err != nil {
 			// Upload failed — earmark is in queue without server lists.
 			// It will be retried on next startup via FlushQueue.
 			return nostrPublishedMsg{action: "earmark", queued: true}
 		}
 
 		// Step 5: publish earmark with complete manifest to Nostr.
+		sendProgress(prog, earmarkProgressMsg{phase: "publishing"})
 		if err := AddEarmark(hexKey, e); err != nil {
 			return nostrPublishedMsg{action: "earmark", queued: true}
 		}
@@ -638,6 +726,15 @@ func (m *PlayerModel) saveEarmarkCmd(hexKey string) tea.Cmd {
 		_ = RemoveFromQueue(e)
 		return nostrPublishedMsg{action: "earmark"}
 	}
+}
+
+// sendProgress forwards an earmarkProgressMsg into the running Bubble Tea
+// program, skipping the call when no program is attached (e.g. unit tests).
+func sendProgress(prog *tea.Program, msg earmarkProgressMsg) {
+	if prog == nil {
+		return
+	}
+	prog.Send(msg)
 }
 
 // saveKeyAndPublish validates the key the user typed inline, persists it, and
@@ -672,6 +769,7 @@ func (m *PlayerModel) saveKeyAndPublish(rawKey string) tea.Cmd {
 func (m *PlayerModel) saveKeyAndAddEarmark(rawKey string) tea.Cmd {
 	artist, title, album := m.artist, m.title, m.album
 	path := m.playlist[m.currentIndex]
+	prog := m.program
 	return func() tea.Msg {
 		rawKey = strings.TrimSpace(rawKey)
 		if rawKey == "" {
@@ -698,6 +796,7 @@ func (m *PlayerModel) saveKeyAndAddEarmark(rawKey string) tea.Cmd {
 		}
 
 		// Encrypt → upload → earmark (same sequence as saveEarmarkCmd).
+		sendProgress(prog, earmarkProgressMsg{phase: "encrypting"})
 		prepared, manifest, err := PrepareUpload(path)
 		if err != nil {
 			return nostrPublishedMsg{action: "earmark", err: fmt.Errorf("could not encrypt file: %w", err)}
@@ -721,10 +820,15 @@ func (m *PlayerModel) saveKeyAndAddEarmark(rawKey string) tea.Cmd {
 		}
 		uploadCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		if err := UploadPrepared(uploadCtx, hexKey, prepared, manifest, servers, nil); err != nil {
+		sendProgress(prog, earmarkProgressMsg{phase: "uploading", chunksDone: 0, chunksTotal: len(prepared)})
+		onChunk := func(done, total int) {
+			sendProgress(prog, earmarkProgressMsg{phase: "uploading", chunksDone: done, chunksTotal: total})
+		}
+		if err := UploadPrepared(uploadCtx, hexKey, prepared, manifest, servers, onChunk); err != nil {
 			return nostrPublishedMsg{action: "earmark", queued: true}
 		}
 
+		sendProgress(prog, earmarkProgressMsg{phase: "publishing"})
 		if err = AddEarmark(hexKey, e); err != nil {
 			return nostrPublishedMsg{action: "earmark", queued: true}
 		}

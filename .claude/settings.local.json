@@ -62,7 +62,23 @@
       "Bash(fnm --version)",
       "Bash(gemini --version)",
       "Read(//usr/local/lib/node_modules/@google/gemini-cli/bundle/**)",
-      "Bash(xargs sed:*)"
+      "Bash(xargs sed:*)",
+      "Read(//home/darryl/.config/derpy/**)",
+      "Read(//home/darryl/.config/**)",
+      "Bash(curl -sI -o /dev/null -w \"blossom.band:     HEAD status=%{http_code}  time=%{time_total}s\\\\n\" https://blossom.band/0000000000000000000000000000000000000000000000000000000000000000 --max-time 10)",
+      "Bash(curl -sI -o /dev/null -w \"cdn.satellite:    HEAD status=%{http_code}  time=%{time_total}s\\\\n\" https://cdn.satellite.earth/0000000000000000000000000000000000000000000000000000000000000000 --max-time 10)",
+      "Bash(curl -sI -o /dev/null -w \"nostr.build:      HEAD status=%{http_code}  time=%{time_total}s\\\\n\" https://nostr.build/0000000000000000000000000000000000000000000000000000000000000000 --max-time 10)",
+      "Bash(curl -sI -o /dev/null -w \"HEAD: %{http_code}\\\\n\" https://blossom.band/0000000000000000000000000000000000000000000000000000000000000000 --max-time 10)",
+      "Bash(curl -s  -o /dev/null -w \"GET:  %{http_code}\\\\n\" https://blossom.band/0000000000000000000000000000000000000000000000000000000000000000 --max-time 10)",
+      "Bash(curl -sI -o /dev/null -w \"HEAD: %{http_code}\\\\n\" https://cdn.satellite.earth/0000000000000000000000000000000000000000000000000000000000000000 --max-time 10)",
+      "Bash(curl -s  -o /dev/null -w \"GET:  %{http_code}\\\\n\" https://cdn.satellite.earth/0000000000000000000000000000000000000000000000000000000000000000 --max-time 10)",
+      "Bash(curl -sI -o /dev/null -w \"HEAD: %{http_code}\\\\n\" https://nostr.build/0000000000000000000000000000000000000000000000000000000000000000 --max-time 10)",
+      "Bash(printf '%-22s ' __TRACKED_VAR__:)",
+      "Bash(curl -sI -o /dev/null -w 'HEAD=%{http_code}  ' https://__TRACKED_VAR__/0000000000000000000000000000000000000000000000000000000000000000 --max-time 15)",
+      "Bash(curl -s -o /dev/null -w 'GET=%{http_code}\\\\n' https://__TRACKED_VAR__/0000000000000000000000000000000000000000000000000000000000000000 --max-time 15)",
+      "Bash(/tmp/derpy-ro earmarks:*)",
+      "Bash(/tmp/derpy-ro:*)",
+      "Bash(git stash *)"
     ]
   }
 }

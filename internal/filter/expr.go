@@ -179,10 +179,19 @@ func (p *parser) parseAnd() (Expr, error) {
 	}
 	for {
 		tok, ok := p.peek()
-		if !ok || tok.kind != tokAnd {
+		if !ok {
 			break
 		}
-		p.consume()
+		switch tok.kind {
+		case tokAnd:
+			// Explicit AND — consume the operator then fall through.
+			p.consume()
+		case tokWord, tokLParen:
+			// Implicit AND — two adjacent atoms with no operator between them.
+			// e.g. "Dear Landlord" → dear AND landlord
+		default:
+			return left, nil
+		}
 		right, err := p.parseAtom()
 		if err != nil {
 			return nil, err

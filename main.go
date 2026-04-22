@@ -27,7 +27,7 @@ func rootCmd() *cobra.Command {
 	var setDefaultSource string
 
 	cmd := &cobra.Command{
-		Use:   "derpy [--source <dir>] [--set-default-source <dir>] [expression...]",
+		Use:   "derpy [<dir>] [--source <dir>] [--set-default-source <dir>] [expression...]",
 		Short: "Terminal music player — shuffles and plays a directory of audio files",
 		Long: `derpy scans a directory recursively for audio files and plays them shuffled.
 
@@ -37,8 +37,14 @@ Keyword expression syntax (AND binds tighter than OR):
   (jazz OR blues) AND piano
   "jazz piano"            exact phrase match
 
-Multiple expression arguments are joined with OR:
-  derpy jazz blues  →  jazz OR blues
+Multiple expression arguments are joined with a space; adjacent bare words
+implicitly AND. Use explicit OR between terms:
+  derpy jazz blues               → jazz AND blues
+  derpy Copyrights OR jazz       → copyrights OR jazz
+  derpy Copyrights OR "Dear Landlord"  → copyrights OR (dear AND landlord)
+
+The source directory may be the first positional argument:
+  derpy /music Copyrights OR "Dear Landlord"
 
 Matching is case-insensitive against the full file path.`,
 		Args: cobra.ArbitraryArgs,
@@ -58,8 +64,16 @@ Matching is case-insensitive against the full file path.`,
 				return nil
 			}
 
-			// Resolve the music directory: flag > config default > error.
+			// Resolve the music directory: positional arg > flag > config default > error.
+			// Support legacy positional syntax: derpy <dir> [expression...]
 			musicDir := source
+			exprArgs := args
+			if musicDir == "" && len(args) > 0 {
+				if stat, err := os.Stat(args[0]); err == nil && stat.IsDir() {
+					musicDir = args[0]
+					exprArgs = args[1:]
+				}
+			}
 			if musicDir == "" {
 				cfg, err := LoadConfig()
 				if err == nil {
@@ -70,8 +84,13 @@ Matching is case-insensitive against the full file path.`,
 				return fmt.Errorf("no source directory specified — use --source <dir> or set a default with --set-default-source <dir>")
 			}
 
-			// Join multiple args with OR so "jazz blues" means "jazz OR blues".
-			exprStr := strings.Join(args, " OR ")
+			// Join expression args with a space so explicit AND/OR operators pass
+			// through intact. Adjacent bare words parse as implicit AND.
+			// Example: Copyrights OR "Dear Landlord" OR "Banner Pilot"
+			//   → args: ["Copyrights", "OR", "Dear Landlord", "OR", "Banner Pilot"]
+			//   → expr: "Copyrights OR Dear Landlord OR Banner Pilot"
+			//   → parsed: copyrights OR (dear AND landlord) OR (banner AND pilot)
+			exprStr := strings.Join(exprArgs, " ")
 			return runPlayer(musicDir, exprStr, noTUI)
 		},
 	}
@@ -245,6 +264,9 @@ func runNoTUI(playlist []string) error {
 func runTUI(playlist []string) error {
 	model := NewPlayerModel(playlist)
 	program := tea.NewProgram(model, tea.WithAltScreen())
+	// Back-reference lets background commands stream progress messages
+	// (e.g. earmark encryption/upload/publish) into the event loop.
+	model.program = program
 
 	// Create the MPRIS service before starting the program so the D-Bus name
 	// is registered before the first PropertiesChanged signal fires.
@@ -325,6 +347,16 @@ Requires a Nostr private key saved via 'derpy nostr-key <key>'.`,
 				return fmt.Errorf("no Nostr private key configured — run: derpy nostr-key <nsec_or_hex_key>")
 			}
 
+			// One-shot migration of earmarks published under the old
+			// "dirplay-earmarks" d-tag from before the project rename.
+			// Short-circuits via a config flag after the first run, so the
+			// steady-state cost is zero relay traffic.
+			if res, mErr := MigrateLegacyEarmarks(cfg.NostrPrivateKey); mErr != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: legacy earmark migration: %v\n", mErr)
+			} else if res.Migrated > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Migrated %d earmark(s) from legacy dirplay list.\n", res.Migrated)
+			}
+
 			fmt.Fprintln(cmd.OutOrStdout(), "Fetching earmarks from Nostr...")
 
 			earmarks, err := FetchEarmarks(cfg.NostrPrivateKey)
@@ -355,7 +387,16 @@ Requires a Nostr private key saved via 'derpy nostr-key <key>'.`,
 			if e.Path != "" {
 				pathInfo = "\n        " + e.Path
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), " %3d.  %-60s  (%s)%s\n", i+1, desc, ts, pathInfo)
+			blossomInfo := ""
+			if e.Blossom != nil {
+				var totalBytes int64
+				for _, c := range e.Blossom.Chunks {
+					totalBytes += int64(c.Size)
+				}
+				sizeMB := float64(totalBytes) / (1024 * 1024)
+				blossomInfo = fmt.Sprintf("\n        %d chunk(s), %.2f MB", len(e.Blossom.Chunks), sizeMB)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), " %3d.  %-60s  (%s)%s%s\n", i+1, desc, ts, pathInfo, blossomInfo)
 			}
 			return nil
 		},
@@ -659,7 +700,28 @@ Requires a Nostr private key saved via 'derpy nostr-key <key>'.`,
 					return nil
 				}
 
+			// One-shot migration of earmarks published under the old
+			// "dirplay-earmarks" d-tag from before the project rename.
+			// Short-circuits via a config flag after the first run, so the
+			// steady-state cost is zero relay traffic.
+			if res, mErr := MigrateLegacyEarmarks(cfg.NostrPrivateKey); mErr != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: legacy earmark migration: %v\n", mErr)
+			} else if res.Migrated > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Migrated %d earmark(s) from legacy dirplay list.\n", res.Migrated)
+			}
+
 			fmt.Fprintln(cmd.OutOrStdout(), "Fetching earmarks from Nostr...")
+
+			// Reconcile orphaned earmarks: entries whose Blossom chunks were
+			// deleted out-of-band (e.g. by the Android app's earmark-removal
+			// flow that succeeds at the chunk delete but fails to update the
+			// Nostr listing). Best-effort — failures are reported but do not
+			// block playback of the rest of the list.
+			if removed, rErr := ReconcileEarmarks(cfg.NostrPrivateKey); rErr != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: reconcile failed: %v\n", rErr)
+			} else if removed > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Reconciled %d orphaned earmark(s) whose Blossom chunks were missing.\n", removed)
+			}
 
 			earmarks, err := FetchEarmarks(cfg.NostrPrivateKey)
 			if err != nil {
