@@ -272,77 +272,91 @@ func downloadChunk(ctx context.Context, serverURL, sha256hex string) ([]byte, er
 	return data, nil
 }
 
-// chunkExistsOnServer issues a BUD-01 HEAD request to check whether a blob is
-// still hosted on a particular server. Returns true on 200, false on 404, and
-// an error for any other condition (network failure, unexpected status). The
-// error is returned so callers can distinguish "definitely gone" (404) from
-// "could not tell" (server unreachable) — only the former should be treated as
-// authoritative evidence that a chunk has been deleted.
-func chunkExistsOnServer(ctx context.Context, serverURL, sha256hex string) (bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead,
-		serverURL+"/"+sha256hex, nil)
+// blossomListAuthToken creates a BUD-02 "list" authorization event for use
+// as a Bearer token on GET /list/<pubkey>. Unlike upload/delete auth, list
+// auth has no "x" tag because the action is not scoped to a specific blob.
+// Servers that permit anonymous listing ignore the Authorization header;
+// sending one unconditionally lets us work with servers that require auth
+// (e.g. cdn.satellite.earth) without a second code path.
+func blossomListAuthToken(hexPrivKey string) (string, error) {
+	pubHex, err := nostr.GetPublicKey(hexPrivKey)
 	if err != nil {
-		return false, fmt.Errorf("could not build head request: %w", err)
+		return "", fmt.Errorf("could not derive public key: %w", err)
 	}
+	ev := nostr.Event{
+		PubKey:    pubHex,
+		CreatedAt: nostr.Timestamp(time.Now().Unix()),
+		Kind:      blossomAuthKind,
+		Content:   "list",
+		Tags: nostr.Tags{
+			{"t", "list"},
+			{"expiration", fmt.Sprintf("%d", time.Now().Add(5*time.Minute).Unix())},
+		},
+	}
+	if err := ev.Sign(hexPrivKey); err != nil {
+		return "", fmt.Errorf("could not sign list auth event: %w", err)
+	}
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return "", fmt.Errorf("could not marshal list auth event: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(data), nil
+}
+
+// ListUserBlobs returns the set of SHA-256 hexes that serverURL reports as
+// blobs uploaded by the user identified by hexPrivKey, via a single BUD-02
+// GET /list/<pubkey> call.
+//
+// An error return means "inconclusive" — the server did not produce a
+// trustworthy answer (endpoint unsupported, network failure, auth rejected,
+// invalid response body). Callers MUST NOT interpret an error as evidence
+// that the server holds nothing: this is the safety contract that prevents
+// reconcile from wiping earmarks when a server is misbehaving. Only a
+// successful (200 + valid JSON) response is authoritative.
+//
+// The returned map is a set: key = SHA-256 hex, value = struct{}{}. Using a
+// map makes the O(1) lookups required by the reconcile set-comparison natural
+// to write at the call site.
+func ListUserBlobs(ctx context.Context, serverURL, hexPrivKey string) (map[string]struct{}, error) {
+	pubHex, err := nostr.GetPublicKey(hexPrivKey)
+	if err != nil {
+		return nil, fmt.Errorf("could not derive public key: %w", err)
+	}
+	token, err := blossomListAuthToken(hexPrivKey)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		serverURL+"/list/"+pubHex, nil)
+	if err != nil {
+		return nil, fmt.Errorf("could not build list request: %w", err)
+	}
+	req.Header.Set("Authorization", "Nostr "+token)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return false, fmt.Errorf("head request failed: %w", err)
+		return nil, fmt.Errorf("list request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	switch resp.StatusCode {
-	case http.StatusOK:
-		return true, nil
-	case http.StatusNotFound, http.StatusGone:
-		return false, nil
-	default:
-		return false, fmt.Errorf("server returned %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return nil, fmt.Errorf("server returned %d: %s", resp.StatusCode, body)
 	}
-}
 
-// ChunkAvailable reports whether a chunk can still be fetched from at least
-// one of its listed servers. The semantics are conservative: a server that
-// answers 404 counts as "definitely missing", but a server that errors out
-// (timeout, DNS failure, 5xx) is treated as "unknown" and the chunk is assumed
-// available so a transient outage cannot trigger reconcile-driven deletion.
-//
-// In short: returns true unless every server returns an authoritative 404.
-func ChunkAvailable(ctx context.Context, chunk BlossomChunk) bool {
-	if len(chunk.Servers) == 0 {
-		// No servers recorded — we have no way to verify, so assume present.
-		return true
+	var listing []blossomBlobDescriptor
+	if err := json.NewDecoder(resp.Body).Decode(&listing); err != nil {
+		return nil, fmt.Errorf("could not decode list response: %w", err)
 	}
-	allDefinitelyMissing := true
-	for _, server := range chunk.Servers {
-		exists, err := chunkExistsOnServer(ctx, server, chunk.SHA256)
-		if err != nil {
-			// Inconclusive — do not treat as missing.
-			allDefinitelyMissing = false
-			continue
-		}
-		if exists {
-			return true
-		}
-	}
-	return !allDefinitelyMissing
-}
 
-// ManifestComplete reports whether every chunk in the manifest is still
-// retrievable from at least one of its servers. A nil manifest returns false
-// (nothing to play). Used by reconcile to detect earmarks whose Blossom
-// chunks were deleted out-of-band (e.g. by another client) so the orphaned
-// listing can be cleaned up.
-func ManifestComplete(ctx context.Context, manifest *BlossomManifest) bool {
-	if manifest == nil {
-		return false
-	}
-	for _, chunk := range manifest.Chunks {
-		if !ChunkAvailable(ctx, chunk) {
-			return false
+	set := make(map[string]struct{}, len(listing))
+	for _, b := range listing {
+		if b.SHA256 != "" {
+			set[b.SHA256] = struct{}{}
 		}
 	}
-	return true
+	return set, nil
 }
 
 // deleteChunk sends a BUD-01 DELETE request for one blob on one server.

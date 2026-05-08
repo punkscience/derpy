@@ -712,16 +712,10 @@ Requires a Nostr private key saved via 'derpy nostr-key <key>'.`,
 
 			fmt.Fprintln(cmd.OutOrStdout(), "Fetching earmarks from Nostr...")
 
-			// Reconcile orphaned earmarks: entries whose Blossom chunks were
-			// deleted out-of-band (e.g. by the Android app's earmark-removal
-			// flow that succeeds at the chunk delete but fails to update the
-			// Nostr listing). Best-effort — failures are reported but do not
-			// block playback of the rest of the list.
-			if removed, rErr := ReconcileEarmarks(cfg.NostrPrivateKey); rErr != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "warning: reconcile failed: %v\n", rErr)
-			} else if removed > 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "Reconciled %d orphaned earmark(s) whose Blossom chunks were missing.\n", removed)
-			}
+			// Reconcile runs automatically at player launch (see
+			// PlayerModel.reconcileCmd); this subcommand does not re-run it
+			// to avoid doubling relay traffic on every `derpy earmarks`
+			// invocation that happens shortly after opening the TUI.
 
 			earmarks, err := FetchEarmarks(cfg.NostrPrivateKey)
 			if err != nil {

@@ -78,9 +78,13 @@ type queueFlushedMsg struct {
 	count int // number of earmarks successfully published from the queue
 }
 
-// cleanupMsg is sent after the startup old-earmark cleanup completes.
-type cleanupMsg struct {
-	removed int // number of earmarks older than EarmarkMaxAge that were purged
+// reconcileMsg is sent after the startup reconcile pass completes. It
+// summarises age-prune, orphan-earmark, and orphan-chunk counts so the TUI
+// can render a single-line status. All zeros means the list and Blossom
+// state were already consistent.
+type reconcileMsg struct {
+	report ReconcileReport
+	err    error // non-nil when reconcile failed outright (e.g. relay unreachable)
 }
 
 // earmarkProgressMsg is streamed from the earmark background command so the
@@ -114,7 +118,7 @@ func (m *PlayerModel) Init() tea.Cmd {
 		m.loadCurrentTrack(),
 		m.tickCmd(),
 		m.flushQueueCmd(),   // retry any earmarks that failed to publish last session
-		m.cleanupCmd(),      // purge earmarks older than 30 days + their Blossom chunks
+		m.reconcileCmd(),    // age-prune + orphan cleanup in one launch-time pass
 	)
 }
 
@@ -426,10 +430,8 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case cleanupMsg:
-		if msg.removed > 0 {
-			m.nostrStatus = fmt.Sprintf("Nostr: removed %d expired earmark(s)", msg.removed)
-		}
+	case reconcileMsg:
+		m.nostrStatus = renderReconcileStatus(msg)
 		return m, nil
 
 	case playErrorMsg:
@@ -853,17 +855,45 @@ func (m *PlayerModel) flushQueueCmd() tea.Cmd {
 	}
 }
 
-// cleanupCmd runs at startup to purge earmarks older than EarmarkMaxAge (30
-// days) and delete their Blossom chunks from all associated servers.
-func (m *PlayerModel) cleanupCmd() tea.Cmd {
+// reconcileCmd runs the single launch-time convergence pass: age-prune
+// expired earmarks, delete orphan Blossom chunks the server holds for us
+// but no surviving earmark references, and drop earmarks whose chunks are
+// absent from every authoritative server listing. See reconcile.go for
+// the full algorithm and safety invariants.
+func (m *PlayerModel) reconcileCmd() tea.Cmd {
 	return func() tea.Msg {
 		cfg, err := LoadConfig()
 		if err != nil || cfg.NostrPrivateKey == "" {
-			return cleanupMsg{}
+			return reconcileMsg{}
 		}
-		removed, _ := CleanupOldEarmarks(cfg.NostrPrivateKey)
-		return cleanupMsg{removed: removed}
+		report, err := Reconcile(cfg.NostrPrivateKey)
+		return reconcileMsg{report: report, err: err}
 	}
+}
+
+// renderReconcileStatus turns a reconcileMsg into a single-line status
+// suitable for the Nostr status area. Returns the empty string when the
+// pass was a clean no-op so the TUI does not show a stale "reconciled 0"
+// message that would overwrite other transient status lines.
+func renderReconcileStatus(msg reconcileMsg) string {
+	if msg.err != nil {
+		return fmt.Sprintf("Nostr: reconcile failed — %v", msg.err)
+	}
+	r := msg.report
+	if r.AgedOut == 0 && r.OrphanEarmarks == 0 && r.OrphanChunksDeleted == 0 {
+		return ""
+	}
+	parts := make([]string, 0, 3)
+	if r.AgedOut > 0 {
+		parts = append(parts, fmt.Sprintf("%d expired", r.AgedOut))
+	}
+	if r.OrphanEarmarks > 0 {
+		parts = append(parts, fmt.Sprintf("%d orphan earmark(s)", r.OrphanEarmarks))
+	}
+	if r.OrphanChunksDeleted > 0 {
+		parts = append(parts, fmt.Sprintf("%d orphan chunk(s)", r.OrphanChunksDeleted))
+	}
+	return "Nostr: reconciled " + strings.Join(parts, ", ")
 }
 
 // deleteCurrentTrack stops playback, removes the file from disk, removes it
