@@ -208,6 +208,66 @@ func JoinTags(tags []string) string {
 	return strings.Join(tags, ", ")
 }
 
+// filterPlaylistByTags returns the subset of paths whose Track has at
+// least one of the Tags in rawTags. The raw tag list is normalized so the
+// caller can pass whatever the user typed at the CLI.
+//
+// Lookup walks the SumCache for entries whose Sum is in the matched set
+// (built once via TagIndex.SumsWithAnyTag), then intersects with paths.
+// Files that no longer exist on disk are dropped silently — stale cache
+// entries shouldn't surface as ghost matches.
+//
+// Empty rawTags returns paths unchanged. ti and sc may be the empty index
+// / cache; an empty index just produces an empty result.
+//
+// Tracks whose Sum has not yet been computed (not in the cache) are
+// invisible to this filter on cold startups — slice 6's background
+// indexer fills the cache in over time.
+func filterPlaylistByTags(paths []string, rawTags string, ti *TagIndex, sc *SumCache) []string {
+	wanted := NormalizeTags(rawTags)
+	if len(wanted) == 0 {
+		return paths
+	}
+
+	matchedSums := ti.SumsWithAnyTag(wanted)
+	if len(matchedSums) == 0 {
+		return nil
+	}
+
+	allowed := make(map[string]bool, len(matchedSums))
+	for path, entry := range sc.All() {
+		if matchedSums[entry.Sum] {
+			if _, err := os.Stat(path); err == nil {
+				allowed[path] = true
+			}
+		}
+	}
+	if len(allowed) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if allowed[p] {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// FilterPlaylistByTagsFromDisk is the production wrapper that loads the
+// TagIndex and SumCache from disk and applies the filter. Use this from
+// CLI command paths; tests should call filterPlaylistByTags directly with
+// injected fixtures.
+func FilterPlaylistByTagsFromDisk(paths []string, rawTags string) []string {
+	if rawTags == "" {
+		return paths
+	}
+	ti, _ := LoadTagIndex()
+	sc, _ := LoadSumCache()
+	return filterPlaylistByTags(paths, rawTags, ti, sc)
+}
+
 // atomicWrite writes data to path atomically by writing a sibling tmp file
 // and renaming it over the target. Avoids leaving a half-written file if
 // the process dies mid-write.

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -160,6 +162,105 @@ func TestTagIndexLoadSaveRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(loaded.Get("sumB"), []string{"dnb"}) {
 		t.Errorf("sumB round-trip mismatch: %v", loaded.Get("sumB"))
+	}
+}
+
+// --- Slice 5: --tags CLI pre-filter ---
+
+func TestFilterPlaylistByTagsEmptyReturnsInput(t *testing.T) {
+	paths := []string{"/a.flac", "/b.flac"}
+	got := filterPlaylistByTags(paths, "", NewTagIndex(), NewSumCache())
+	if !reflect.DeepEqual(got, paths) {
+		t.Errorf("empty rawTags should return input unchanged; got %v", got)
+	}
+	// All-stripped input should likewise no-op (no tags after normalization).
+	got2 := filterPlaylistByTags(paths, "!@#$", NewTagIndex(), NewSumCache())
+	if !reflect.DeepEqual(got2, paths) {
+		t.Errorf("all-stripped rawTags should return input unchanged; got %v", got2)
+	}
+}
+
+func TestFilterPlaylistByTagsMatchesOnAnyTag(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.flac")
+	b := filepath.Join(dir, "b.flac")
+	c := filepath.Join(dir, "c.flac")
+	for _, p := range []string{a, b, c} {
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ti := NewTagIndex()
+	ti.Set("sumA", []string{"jazz", "piano"})
+	ti.Set("sumB", []string{"dnb"})
+	// sumC has no tags
+
+	sc := NewSumCache()
+	sc.Put(a, SumCacheEntry{Sum: "sumA"})
+	sc.Put(b, SumCacheEntry{Sum: "sumB"})
+	sc.Put(c, SumCacheEntry{Sum: "sumC"})
+
+	// "jazz" → only a.flac
+	got := filterPlaylistByTags([]string{a, b, c}, "jazz", ti, sc)
+	if !reflect.DeepEqual(got, []string{a}) {
+		t.Errorf("--tags jazz → %v, want [%s]", got, a)
+	}
+
+	// "jazz, dnb" (OR semantics) → a.flac and b.flac
+	got = filterPlaylistByTags([]string{a, b, c}, "jazz, dnb", ti, sc)
+	if !reflect.DeepEqual(got, []string{a, b}) {
+		t.Errorf("--tags jazz,dnb → %v, want [%s %s]", got, a, b)
+	}
+
+	// "techno" → no matches
+	got = filterPlaylistByTags([]string{a, b, c}, "techno", ti, sc)
+	if got != nil {
+		t.Errorf("--tags techno → %v, want nil", got)
+	}
+}
+
+func TestFilterPlaylistByTagsDropsMissingFiles(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.flac")
+	missing := filepath.Join(dir, "ghost.flac")
+	if err := os.WriteFile(a, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// missing intentionally not written
+
+	ti := NewTagIndex()
+	ti.Set("sumA", []string{"jazz"})
+	ti.Set("sumGhost", []string{"jazz"})
+
+	sc := NewSumCache()
+	sc.Put(a, SumCacheEntry{Sum: "sumA"})
+	sc.Put(missing, SumCacheEntry{Sum: "sumGhost"})
+
+	// Both sumA and sumGhost are tagged 'jazz', but only a.flac exists.
+	got := filterPlaylistByTags([]string{a, missing}, "jazz", ti, sc)
+	if !reflect.DeepEqual(got, []string{a}) {
+		t.Errorf("stale cache entry should be dropped; got %v", got)
+	}
+}
+
+func TestFilterPlaylistByTagsNormalizesQuery(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.flac")
+	if err := os.WriteFile(a, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ti := NewTagIndex()
+	ti.Set("sumA", []string{"drum n bass"}) // stored canonical form
+
+	sc := NewSumCache()
+	sc.Put(a, SumCacheEntry{Sum: "sumA"})
+
+	// User types the un-normalized form on the CLI — should still match.
+	got := filterPlaylistByTags([]string{a}, "Drum 'n' Bass", ti, sc)
+	if !reflect.DeepEqual(got, []string{a}) {
+		t.Errorf("query 'Drum 'n' Bass' should normalize and match; got %v", got)
 	}
 }
 
