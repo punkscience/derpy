@@ -54,6 +54,21 @@ type PlayerModel struct {
 	// TagIndex; cancelling discards the buffer.
 	tagEntry  bool
 	tagBuffer string
+
+	// Background-indexer progress. While indexingDone < indexingTotal the
+	// View shows a dim 'indexing N/M tracks…' line above the controls;
+	// the line vanishes when done catches total or when the indexer is
+	// not running (both fields zero).
+	indexingDone  int
+	indexingTotal int
+}
+
+// indexProgressMsg is sent by IndexSource (running in a background
+// goroutine) each time it advances. done==total signals the sweep is
+// complete and the status line should disappear.
+type indexProgressMsg struct {
+	done  int
+	total int
 }
 
 // tagsSavedMsg signals that a write to ~/.config/derpy/tags.json completed.
@@ -466,6 +481,11 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case indexProgressMsg:
+		m.indexingDone = msg.done
+		m.indexingTotal = msg.total
+		return m, nil
+
 	case tagsSavedMsg:
 		// Fire-and-observe: the in-memory Tag index was updated before this
 		// message was dispatched, so the UI is already current. We surface
@@ -614,6 +634,15 @@ func (m *PlayerModel) View() string {
 		content.WriteString("\n")
 		content.WriteString(promptStyle.Render("[ENTER] save  [ESC] cancel"))
 		return m.composeWithTagColumn(content.String())
+	}
+
+	// Background-indexer status. Visible only while the sweep is in
+	// progress (0 < done < total). Disappears the moment it catches up,
+	// without leaving a blank line behind on the next render.
+	if m.indexingTotal > 0 && m.indexingDone < m.indexingTotal {
+		indexStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#626262")).MarginTop(1)
+		content.WriteString(indexStyle.Render(fmt.Sprintf("indexing %d/%d tracks…", m.indexingDone, m.indexingTotal)))
+		content.WriteString("\n")
 	}
 
 	// Controls

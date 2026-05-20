@@ -279,7 +279,7 @@ func runPlayer(musicDir string, exprStr string, tagsFilter string, noTUI bool) e
 	if noTUI {
 		return runNoTUI(playlist)
 	}
-	return runTUI(playlist)
+	return runTUI(playlist, musicDir)
 }
 
 // runNoTUI plays the playlist sequentially without a terminal UI.
@@ -314,7 +314,13 @@ func runNoTUI(playlist []string) error {
 // runTUI starts the Bubble Tea TUI player and, if the session D-Bus is
 // available, registers an MPRIS2 service so external clients (playerctl,
 // Waybar, etc.) can query and control playback.
-func runTUI(playlist []string) error {
+//
+// When sourceDir is non-empty, a background SumCache indexer is also
+// kicked off: it walks the directory and hashes any audio files not yet
+// in cache, reporting progress to the TUI via indexProgressMsg. Playback
+// is never blocked on this — the indexer runs in its own goroutine and
+// the context is cancelled when the user quits.
+func runTUI(playlist []string, sourceDir string) error {
 	model := NewPlayerModel(playlist)
 	program := tea.NewProgram(model, tea.WithAltScreen())
 
@@ -328,6 +334,17 @@ func runTUI(playlist []string) error {
 	// Give the model a reference so it can emit state-change signals.
 	model.mpris = mpris
 	defer mpris.Close()
+
+	// Background SumCache indexer. Only runs when a source directory is
+	// known (i.e. default play mode); the earmarks subcommand passes
+	// sourceDir="" because its playlist isn't tied to a scanned dir.
+	if sourceDir != "" {
+		indexerCtx, cancelIndexer := context.WithCancel(context.Background())
+		defer cancelIndexer()
+		go IndexSource(indexerCtx, sourceDir, model.sumCache, func(done, total int) {
+			program.Send(indexProgressMsg{done: done, total: total})
+		})
+	}
 
 	if _, err := program.Run(); err != nil {
 		return fmt.Errorf("error running TUI: %w", err)
@@ -882,7 +899,9 @@ Requires a Nostr private key saved via 'derpy nostr-key <key>'.`,
 			if noTUI {
 				return runNoTUI(finalPlaylist)
 			}
-			return runTUI(finalPlaylist)
+			// Empty sourceDir — earmarks playlist isn't tied to a scanned
+			// directory, so the background indexer isn't applicable here.
+			return runTUI(finalPlaylist, "")
 		},
 	}
 
