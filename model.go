@@ -47,6 +47,21 @@ type PlayerModel struct {
 	sumCache    *SumCache
 	currentSum  string   // tag.Sum of the currently-playing Track, "" if unknown
 	currentTags []string // Tags applied to the currently-playing Track, nil if none
+
+	// Tag-entry state: when the user presses [T] on a playing Track whose
+	// Sum is known, the TUI enters an inline editor pre-filled with the
+	// current Tag list. Submitting saves the new Tag set to the on-disk
+	// TagIndex; cancelling discards the buffer.
+	tagEntry  bool
+	tagBuffer string
+}
+
+// tagsSavedMsg signals that a write to ~/.config/derpy/tags.json completed.
+// Carries the saved sum so the View can ignore stale saves when the user
+// has already skipped to a different Track.
+type tagsSavedMsg struct {
+	sum string
+	err error
 }
 
 // Messages for the TUI
@@ -122,6 +137,46 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case tea.KeyMsg:
+		// While in Tag-entry mode, consume all keystrokes for input.
+		// Mirrors the nostrKeyEntry handler below — the two modes are
+		// mutually exclusive in practice because their trigger keys
+		// ([T] vs [E]/[P]) are themselves captured as input characters
+		// while the other mode is active.
+		if m.tagEntry {
+			switch msg.String() {
+			case "esc":
+				// Discard the buffer; on-disk Tags are untouched.
+				m.tagEntry = false
+				m.tagBuffer = ""
+			case "enter":
+				// Normalize and commit the new Tag set. The in-memory
+				// update happens before the disk write returns so the
+				// right column reflects the change immediately.
+				tags := NormalizeTags(m.tagBuffer)
+				sum := m.currentSum
+				if sum != "" {
+					m.tagIndex.Set(sum, tags)
+					m.currentTags = tags
+				}
+				m.tagEntry = false
+				m.tagBuffer = ""
+				if sum != "" {
+					return m, m.persistTagIndexCmd(sum)
+				}
+				return m, nil
+			case "backspace", "ctrl+h":
+				if len(m.tagBuffer) > 0 {
+					runes := []rune(m.tagBuffer)
+					m.tagBuffer = string(runes[:len(runes)-1])
+				}
+			default:
+				if len(msg.Runes) == 1 && unicode.IsPrint(msg.Runes[0]) {
+					m.tagBuffer += string(msg.Runes)
+				}
+			}
+			return m, nil
+		}
+
 		// While in Nostr key-entry mode, consume all keystrokes for input.
 		if m.nostrKeyEntry {
 			switch msg.String() {
@@ -235,6 +290,16 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Delete current track from disk and advance to next
 			if m.playing && m.currentIndex < len(m.playlist) {
 				return m, m.deleteCurrentTrack()
+			}
+
+		case "t":
+			// Enter Tag-entry mode for the current Track. Requires a known
+			// Sum (eager hash on track-load — see slice 2). If Sum is
+			// missing (rare: tag.Sum failed for this file), [T] is a
+			// no-op so we don't accept Tag input we can't persist.
+			if m.playing && m.currentSum != "" {
+				m.tagEntry = true
+				m.tagBuffer = JoinTags(m.currentTags)
 			}
 		}
 
@@ -401,6 +466,16 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tagsSavedMsg:
+		// Fire-and-observe: the in-memory Tag index was updated before this
+		// message was dispatched, so the UI is already current. We surface
+		// disk-write failures via the nostrStatus line for now (no dedicated
+		// tag status line yet — kept lightweight for slice 4).
+		if msg.err != nil {
+			m.nostrStatus = fmt.Sprintf("Tags: save failed — %v", msg.err)
+		}
+		return m, nil
+
 	case cleanupMsg:
 		if msg.removed > 0 {
 			m.nostrStatus = fmt.Sprintf("Nostr: removed %d expired earmark(s)", msg.removed)
@@ -524,15 +599,35 @@ func (m *PlayerModel) View() string {
 		content.WriteString("\n")
 	}
 
+	// Tag-entry overlay: shown in place of the controls hint while the
+	// user is editing Tags for the current Track. The right column stays
+	// visible (see grilling decision: "you're editing what's there —
+	// better to see it").
+	if m.tagEntry {
+		promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).MarginTop(1)
+		content.WriteString("\n")
+		content.WriteString(promptStyle.Render("Edit tags for current track."))
+		content.WriteString("\n")
+		content.WriteString(promptStyle.Render("Comma-separated. Letters/digits/spaces only; anything else is stripped."))
+		content.WriteString("\n")
+		content.WriteString(promptStyle.Render(fmt.Sprintf("> %s", m.tagBuffer)))
+		content.WriteString("\n")
+		content.WriteString(promptStyle.Render("[ENTER] save  [ESC] cancel"))
+		return m.composeWithTagColumn(content.String())
+	}
+
 	// Controls
-	controls := "Controls: [←] Previous  [→] Next  [SPACE] Pause/Play  [E] Earmark  [P] Post  [D] Delete  [ESC] Quit"
+	controls := "Controls: [←] Previous  [→] Next  [SPACE] Pause/Play  [E] Earmark  [P] Post  [T] Tag  [D] Delete  [ESC] Quit"
 	content.WriteString(controlsStyle.Render(controls))
 
-	left := content.String()
+	return m.composeWithTagColumn(content.String())
+}
 
-	// Right-edge tag column. Shown only when the current Track has Tags and
-	// the terminal is wide enough to fit a sensible two-column layout
-	// (threshold matches the grilling-session decision).
+// composeWithTagColumn joins the left-column content with the right-edge
+// Tag column when applicable, falling back to single-column otherwise.
+// Centralised so both the normal playback view and the tag-entry overlay
+// share the same composition logic.
+func (m *PlayerModel) composeWithTagColumn(left string) string {
 	if right := renderTagsColumn(m.currentTags); right != "" && m.width >= twoColumnMinWidth {
 		return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	}
@@ -617,6 +712,18 @@ func (m *PlayerModel) tickCmd() tea.Cmd {
 // As part of the same goroutine we also compute the Track's Sum (using the
 // SumCache when valid, otherwise tag.Sum on the file) and look up its Tags.
 // Sum computation runs before LoadTrack so we don't contend with beep on
+// persistTagIndexCmd writes the in-memory TagIndex to disk in a goroutine.
+// The TagIndex itself was already mutated synchronously in the [T] enter
+// handler — this command only persists, so callers can return immediately
+// without blocking the UI on disk I/O.
+func (m *PlayerModel) persistTagIndexCmd(sum string) tea.Cmd {
+	ti := m.tagIndex
+	return func() tea.Msg {
+		err := SaveTagIndex(ti)
+		return tagsSavedMsg{sum: sum, err: err}
+	}
+}
+
 // the same file handle. Sum/tag failures are non-fatal — playback proceeds
 // with sum="" and tags=nil, and the right-edge column simply stays empty.
 func (m *PlayerModel) loadCurrentTrack() tea.Cmd {

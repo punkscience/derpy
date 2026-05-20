@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // TestNewPlayerModelLoadsTagState verifies that NewPlayerModel wires up a
@@ -130,6 +132,145 @@ func TestViewHidesTagsWhenTerminalNarrow(t *testing.T) {
 	out := m.View()
 	if strings.Contains(out, "jazz") {
 		t.Errorf("narrow View should drop right column; saw 'jazz' in %q", out)
+	}
+}
+
+// --- Slice 4: [T] keybinding + tag-entry overlay ---
+
+// keyMsg builds a tea.KeyMsg for a single character or named key. Mirrors
+// Bubble Tea's internal construction so msg.String() and msg.Runes both
+// look right to the handler.
+func keyMsg(s string) tea.KeyMsg {
+	switch s {
+	case "enter":
+		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "esc":
+		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "backspace":
+		return tea.KeyMsg{Type: tea.KeyBackspace}
+	default:
+		runes := []rune(s)
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: runes}
+	}
+}
+
+func TestPressTEntersTagEntryAndPrefillsBuffer(t *testing.T) {
+	m := NewPlayerModel([]string{"a.flac"})
+	m.Update(trackLoadedMsg{sum: "sumA", tags: []string{"jazz", "piano"}})
+	m.playing = true // trackLoadedMsg handler sets this, but be explicit
+
+	if m.tagEntry {
+		t.Fatalf("tagEntry should start false")
+	}
+	m.Update(keyMsg("t"))
+	if !m.tagEntry {
+		t.Errorf("expected tagEntry=true after [T]")
+	}
+	if m.tagBuffer != "jazz, piano" {
+		t.Errorf("tagBuffer = %q, want \"jazz, piano\" (pre-filled with current Tags)", m.tagBuffer)
+	}
+}
+
+func TestPressTIgnoredWhenNotPlaying(t *testing.T) {
+	m := NewPlayerModel([]string{"a.flac"})
+	// playing stays false
+	m.Update(keyMsg("t"))
+	if m.tagEntry {
+		t.Errorf("tagEntry entered while not playing")
+	}
+}
+
+func TestPressTIgnoredWhenSumUnknown(t *testing.T) {
+	m := NewPlayerModel([]string{"a.flac"})
+	// Simulate a load with sum="" (tag.Sum failed).
+	m.Update(trackLoadedMsg{sum: "", tags: nil})
+	m.playing = true
+	m.Update(keyMsg("t"))
+	if m.tagEntry {
+		t.Errorf("tagEntry entered without a known Sum; cannot persist Tags")
+	}
+}
+
+func TestTagEntryEscDiscards(t *testing.T) {
+	m := NewPlayerModel([]string{"a.flac"})
+	m.Update(trackLoadedMsg{sum: "sumA", tags: []string{"jazz"}})
+	m.playing = true
+	m.Update(keyMsg("t"))
+	if !m.tagEntry {
+		t.Fatalf("setup: failed to enter tagEntry")
+	}
+
+	// Edit the buffer, then cancel.
+	m.tagBuffer = "completely different"
+	m.Update(keyMsg("esc"))
+
+	if m.tagEntry {
+		t.Errorf("tagEntry still active after esc")
+	}
+	if m.tagBuffer != "" {
+		t.Errorf("tagBuffer not cleared after esc: %q", m.tagBuffer)
+	}
+	// Tags on disk should be untouched — currentTags still the originals.
+	if !reflect.DeepEqual(m.currentTags, []string{"jazz"}) {
+		t.Errorf("currentTags changed by esc: %v, want [jazz]", m.currentTags)
+	}
+}
+
+func TestTagEntryEnterNormalizesAndUpdates(t *testing.T) {
+	m := NewPlayerModel([]string{"a.flac"})
+	m.Update(trackLoadedMsg{sum: "sumA", tags: []string{"jazz"}})
+	m.playing = true
+	m.Update(keyMsg("t"))
+
+	// Replace the pre-filled buffer with a messy input that exercises the
+	// normalization rule.
+	m.tagBuffer = "JAZZ, drum 'n' bass, 808 BASS, jazz"
+	m.Update(keyMsg("enter"))
+
+	if m.tagEntry {
+		t.Errorf("tagEntry still active after enter")
+	}
+	want := []string{"jazz", "drum n bass", "808 bass"}
+	if !reflect.DeepEqual(m.currentTags, want) {
+		t.Errorf("currentTags after enter = %v, want %v", m.currentTags, want)
+	}
+	if !reflect.DeepEqual(m.tagIndex.Get("sumA"), want) {
+		t.Errorf("tagIndex.Get(sumA) after enter = %v, want %v", m.tagIndex.Get("sumA"), want)
+	}
+}
+
+func TestTagEntryBackspaceRemovesRune(t *testing.T) {
+	m := NewPlayerModel([]string{"a.flac"})
+	m.Update(trackLoadedMsg{sum: "sumA", tags: nil})
+	m.playing = true
+	m.Update(keyMsg("t"))
+
+	m.tagBuffer = "jazz"
+	m.Update(keyMsg("backspace"))
+	if m.tagBuffer != "jaz" {
+		t.Errorf("after backspace tagBuffer = %q, want \"jaz\"", m.tagBuffer)
+	}
+}
+
+func TestViewShowsTagEntryOverlay(t *testing.T) {
+	m := NewPlayerModel([]string{"a.flac"})
+	m.Update(trackLoadedMsg{sum: "sumA", tags: []string{"jazz"}})
+	m.playing = true
+	m.width = 100
+	m.Update(keyMsg("t"))
+	m.tagBuffer = "dnb"
+
+	out := m.View()
+	if !strings.Contains(out, "Edit tags for current track") {
+		t.Errorf("tag-entry overlay header missing: %q", out)
+	}
+	if !strings.Contains(out, "dnb") {
+		t.Errorf("tag-entry overlay should echo buffer: %q", out)
+	}
+	// Right column stays visible during tag entry — verify the existing
+	// "jazz" tag is still rendered alongside the overlay.
+	if !strings.Contains(out, "jazz") {
+		t.Errorf("right column should remain visible during tag entry: %q", out)
 	}
 }
 
