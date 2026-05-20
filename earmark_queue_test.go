@@ -6,15 +6,17 @@ import (
 	"testing"
 )
 
-// withTempQueue sets the config directory (via HOME) to a temp directory for
-// the duration of fn, then restores it. This isolates queue tests from the
-// real ~/.config/derpy/queue.json.
+// withTempQueue redirects the home directory used by queueFilePath() to a
+// temp directory for the duration of fn, then restores the previous values.
+//
+// os.UserHomeDir (which queueFilePath uses) checks USERPROFILE first on
+// Windows and HOME on Unix, so we set both — setting only HOME let the
+// Windows-side tests leak into the real ~/.config/derpy/queue.json.
 func withTempQueue(t *testing.T, fn func()) {
 	t.Helper()
-	origHome := os.Getenv("HOME")
 	tmp := t.TempDir()
-	os.Setenv("HOME", tmp)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
 	fn()
 }
 
