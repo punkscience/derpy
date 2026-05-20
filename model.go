@@ -40,6 +40,43 @@ type PlayerModel struct {
 	nostrKeyForPost  bool   // true when key entry was triggered by [P] (public post) vs [E] (earmark)
 	nostrStatus      string // last Nostr result message shown to the user
 
+	// Tag and Sum state. The TagIndex and SumCache are loaded once at startup
+	// and shared across all track-loads. currentSum/currentTags refresh on
+	// each track change via the eager-compute step in loadCurrentTrack.
+	tagIndex    *TagIndex
+	sumCache    *SumCache
+	currentSum  string   // tag.Sum of the currently-playing Track, "" if unknown
+	currentTags []string // Tags applied to the currently-playing Track, nil if none
+
+	// Tag-entry state: when the user presses [T] on a playing Track whose
+	// Sum is known, the TUI enters an inline editor pre-filled with the
+	// current Tag list. Submitting saves the new Tag set to the on-disk
+	// TagIndex; cancelling discards the buffer.
+	tagEntry  bool
+	tagBuffer string
+
+	// Background-indexer progress. While indexingDone < indexingTotal the
+	// View shows a dim 'indexing N/M tracks…' line above the controls;
+	// the line vanishes when done catches total or when the indexer is
+	// not running (both fields zero).
+	indexingDone  int
+	indexingTotal int
+}
+
+// indexProgressMsg is sent by IndexSource (running in a background
+// goroutine) each time it advances. done==total signals the sweep is
+// complete and the status line should disappear.
+type indexProgressMsg struct {
+	done  int
+	total int
+}
+
+// tagsSavedMsg signals that a write to ~/.config/derpy/tags.json completed.
+// Carries the saved sum so the View can ignore stale saves when the user
+// has already skipped to a different Track.
+type tagsSavedMsg struct {
+	sum string
+	err error
 }
 
 // Messages for the TUI
@@ -52,6 +89,8 @@ type trackLoadedMsg struct {
 	artist   string
 	title    string
 	album    string
+	sum      string   // tag.Sum of the loaded Track, "" if hashing failed
+	tags     []string // Tags applied to the loaded Track (defensive copy from TagIndex)
 }
 // nostrPublishedMsg is sent after a Nostr publish attempt completes.
 type nostrPublishedMsg struct {
@@ -76,13 +115,22 @@ type trackDeletedMsg struct {
 	err error
 }
 
-// NewPlayerModel creates a new player model
+// NewPlayerModel creates a new player model.
+//
+// The Tag index and Sum cache are loaded from disk here so the player has
+// them ready by the time the first trackLoadedMsg arrives. Load failures
+// degrade to empty in-memory copies — tag features go silent for the
+// session rather than blocking playback.
 func NewPlayerModel(playlist []string) *PlayerModel {
+	ti, _ := LoadTagIndex()
+	sc, _ := LoadSumCache()
 	return &PlayerModel{
 		playlist:     playlist,
 		currentIndex: 0,
 		player:       NewAudioPlayer(),
 		tickInterval: 100 * time.Millisecond, // Make tick interval configurable
+		tagIndex:     ti,
+		sumCache:     sc,
 	}
 }
 
@@ -104,6 +152,46 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case tea.KeyMsg:
+		// While in Tag-entry mode, consume all keystrokes for input.
+		// Mirrors the nostrKeyEntry handler below — the two modes are
+		// mutually exclusive in practice because their trigger keys
+		// ([T] vs [E]/[P]) are themselves captured as input characters
+		// while the other mode is active.
+		if m.tagEntry {
+			switch msg.String() {
+			case "esc":
+				// Discard the buffer; on-disk Tags are untouched.
+				m.tagEntry = false
+				m.tagBuffer = ""
+			case "enter":
+				// Normalize and commit the new Tag set. The in-memory
+				// update happens before the disk write returns so the
+				// right column reflects the change immediately.
+				tags := NormalizeTags(m.tagBuffer)
+				sum := m.currentSum
+				if sum != "" {
+					m.tagIndex.Set(sum, tags)
+					m.currentTags = tags
+				}
+				m.tagEntry = false
+				m.tagBuffer = ""
+				if sum != "" {
+					return m, m.persistTagIndexCmd(sum)
+				}
+				return m, nil
+			case "backspace", "ctrl+h":
+				if len(m.tagBuffer) > 0 {
+					runes := []rune(m.tagBuffer)
+					m.tagBuffer = string(runes[:len(runes)-1])
+				}
+			default:
+				if len(msg.Runes) == 1 && unicode.IsPrint(msg.Runes[0]) {
+					m.tagBuffer += string(msg.Runes)
+				}
+			}
+			return m, nil
+		}
+
 		// While in Nostr key-entry mode, consume all keystrokes for input.
 		if m.nostrKeyEntry {
 			switch msg.String() {
@@ -217,6 +305,16 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Delete current track from disk and advance to next
 			if m.playing && m.currentIndex < len(m.playlist) {
 				return m, m.deleteCurrentTrack()
+			}
+
+		case "t":
+			// Enter Tag-entry mode for the current Track. Requires a known
+			// Sum (eager hash on track-load — see slice 2). If Sum is
+			// missing (rare: tag.Sum failed for this file), [T] is a
+			// no-op so we don't accept Tag input we can't persist.
+			if m.playing && m.currentSum != "" {
+				m.tagEntry = true
+				m.tagBuffer = JoinTags(m.currentTags)
 			}
 		}
 
@@ -343,6 +441,8 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.artist = msg.artist
 		m.title = msg.title
 		m.album = msg.album
+		m.currentSum = msg.sum
+		m.currentTags = msg.tags
 		// Notify MPRIS clients that metadata and status have changed.
 		m.mpris.NotifyStateChanged(m)
 		m.mpris.EmitSeeked(m) // Position jumped to 0 on track change.
@@ -378,6 +478,21 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case queueFlushedMsg:
 		if msg.count > 0 {
 			m.nostrStatus = fmt.Sprintf("Nostr: synced %d queued earmark(s)", msg.count)
+		}
+		return m, nil
+
+	case indexProgressMsg:
+		m.indexingDone = msg.done
+		m.indexingTotal = msg.total
+		return m, nil
+
+	case tagsSavedMsg:
+		// Fire-and-observe: the in-memory Tag index was updated before this
+		// message was dispatched, so the UI is already current. We surface
+		// disk-write failures via the nostrStatus line for now (no dedicated
+		// tag status line yet — kept lightweight for slice 4).
+		if msg.err != nil {
+			m.nostrStatus = fmt.Sprintf("Tags: save failed — %v", msg.err)
 		}
 		return m, nil
 
@@ -504,11 +619,97 @@ func (m *PlayerModel) View() string {
 		content.WriteString("\n")
 	}
 
+	// Tag-entry overlay: shown in place of the controls hint while the
+	// user is editing Tags for the current Track. The right column stays
+	// visible (see grilling decision: "you're editing what's there —
+	// better to see it").
+	if m.tagEntry {
+		promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).MarginTop(1)
+		content.WriteString("\n")
+		content.WriteString(promptStyle.Render("Edit tags for current track."))
+		content.WriteString("\n")
+		content.WriteString(promptStyle.Render("Comma-separated. Letters/digits/spaces only; anything else is stripped."))
+		content.WriteString("\n")
+		content.WriteString(promptStyle.Render(fmt.Sprintf("> %s", m.tagBuffer)))
+		content.WriteString("\n")
+		content.WriteString(promptStyle.Render("[ENTER] save  [ESC] cancel"))
+		return m.composeWithTagColumn(content.String())
+	}
+
+	// Background-indexer status. Visible only while the sweep is in
+	// progress (0 < done < total). Disappears the moment it catches up,
+	// without leaving a blank line behind on the next render.
+	if m.indexingTotal > 0 && m.indexingDone < m.indexingTotal {
+		indexStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#626262")).MarginTop(1)
+		content.WriteString(indexStyle.Render(fmt.Sprintf("indexing %d/%d tracks…", m.indexingDone, m.indexingTotal)))
+		content.WriteString("\n")
+	}
+
 	// Controls
-	controls := "Controls: [←] Previous  [→] Next  [SPACE] Pause/Play  [E] Earmark  [P] Post  [D] Delete  [ESC] Quit"
+	controls := "Controls: [←] Previous  [→] Next  [SPACE] Pause/Play  [E] Earmark  [P] Post  [T] Tag  [D] Delete  [ESC] Quit"
 	content.WriteString(controlsStyle.Render(controls))
 
-	return content.String()
+	return m.composeWithTagColumn(content.String())
+}
+
+// composeWithTagColumn joins the left-column content with the right-edge
+// Tag column when applicable, falling back to single-column otherwise.
+// Centralised so both the normal playback view and the tag-entry overlay
+// share the same composition logic.
+func (m *PlayerModel) composeWithTagColumn(left string) string {
+	if right := renderTagsColumn(m.currentTags); right != "" && m.width >= twoColumnMinWidth {
+		return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	}
+	return left
+}
+
+// twoColumnMinWidth is the terminal width below which the right-edge Tag
+// column is dropped and the TUI falls back to a single-column layout.
+const twoColumnMinWidth = 60
+
+// tagColumnWidth is the fixed character width of the right-edge Tag column.
+// Tags longer than this are truncated with an ellipsis so the column stays
+// rectangular regardless of Tag length.
+const tagColumnWidth = 20
+
+// renderTagsColumn returns the vertical Tag stack rendered as a lipgloss
+// block, suitable for JoinHorizontal with the main content. Returns "" when
+// there are no Tags to display, signalling the caller to skip the column.
+func renderTagsColumn(tags []string) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	headerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#626262")).
+		Bold(true).
+		MarginLeft(2)
+	tagStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#626262")).
+		MarginLeft(2)
+
+	var sb strings.Builder
+	sb.WriteString(headerStyle.Render("tags"))
+	sb.WriteString("\n")
+	for _, t := range tags {
+		sb.WriteString(tagStyle.Render(truncateTag(t, tagColumnWidth)))
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+// truncateTag clips s to at most width runes, appending an ellipsis when
+// truncation actually happens. Operates on runes, not bytes, so it handles
+// Tags with multi-byte characters cleanly (even though NormalizeTags
+// currently only emits [a-z0-9 ]).
+func truncateTag(s string, width int) string {
+	if width <= 1 {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= width {
+		return s
+	}
+	return string(runes[:width-1]) + "…"
 }
 
 // renderProgressBar renders a progress bar
@@ -535,7 +736,25 @@ func (m *PlayerModel) tickCmd() tea.Cmd {
 	})
 }
 
-// loadCurrentTrack loads and plays the current track
+// loadCurrentTrack loads and plays the current track.
+//
+// As part of the same goroutine we also compute the Track's Sum (using the
+// SumCache when valid, otherwise tag.Sum on the file) and look up its Tags.
+// Sum computation runs before LoadTrack so we don't contend with beep on
+// persistTagIndexCmd writes the in-memory TagIndex to disk in a goroutine.
+// The TagIndex itself was already mutated synchronously in the [T] enter
+// handler — this command only persists, so callers can return immediately
+// without blocking the UI on disk I/O.
+func (m *PlayerModel) persistTagIndexCmd(sum string) tea.Cmd {
+	ti := m.tagIndex
+	return func() tea.Msg {
+		err := SaveTagIndex(ti)
+		return tagsSavedMsg{sum: sum, err: err}
+	}
+}
+
+// the same file handle. Sum/tag failures are non-fatal — playback proceeds
+// with sum="" and tags=nil, and the right-edge column simply stays empty.
 func (m *PlayerModel) loadCurrentTrack() tea.Cmd {
 	return func() tea.Msg {
 		if m.currentIndex >= len(m.playlist) {
@@ -543,6 +762,15 @@ func (m *PlayerModel) loadCurrentTrack() tea.Cmd {
 		}
 
 		track := m.playlist[m.currentIndex]
+
+		// Compute Sum + look up Tags before opening the file for playback.
+		// Failures here are non-fatal; we just play the track without tag
+		// awareness this session.
+		sum, _ := m.sumCache.LookupOrCompute(track)
+		var tags []string
+		if sum != "" {
+			tags = m.tagIndex.Get(sum)
+		}
 
 		// Load the track
 		if err := m.player.LoadTrack(track); err != nil {
@@ -559,6 +787,8 @@ func (m *PlayerModel) loadCurrentTrack() tea.Cmd {
 			artist:   m.player.GetArtist(),
 			title:    m.player.GetTitle(),
 			album:    m.player.GetAlbum(),
+			sum:      sum,
+			tags:     tags,
 		}
 	}
 }

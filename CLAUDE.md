@@ -28,13 +28,18 @@ go build -o derpy
 | `speaker.go` | Custom PulseAudio speaker backed by `jfreymuth/pulse` (pure Go, no ALSA headers). Exposes `speakerInit/Play/Clear/Lock/Unlock` used by `audio.go`. |
 | `listenbrainz.go` | Optional scrobbling — submits "playing now" immediately, scrobbles at 25% completion (min 30s tracks) |
 | `shuffle.go` | Fisher-Yates shuffle seeded with current time |
+| `tags.go` | **Tag** index (`~/.config/derpy/tags.json`) + `NormalizeTags` (lowercase, `[a-z0-9 ]` only) + `filterPlaylistByTags` (the `--tags` CLI pre-filter) |
+| `sumcache.go` | **Sum cache** (`~/.config/derpy/sum-cache.json`): mtime+size-validated path → `tag.Sum` mapping. The bridge between file-system paths and the Tag index. |
+| `indexer.go` | Background `SumCache` indexer. Walks the source dir at TUI startup, hashes any uncached audio files, reports progress via `indexProgressMsg`. Playback is never blocked. |
 
 **Audio formats:** mp3, wav, flac, ogg, m4a, aac
-**Key libraries:** `charmbracelet/bubbletea`, `gopxl/beep`, `dhowden/tag` (metadata), `hirigaray/go-listenbrainz`
+**Key libraries:** `charmbracelet/bubbletea`, `gopxl/beep`, `dhowden/tag` (metadata + audio fingerprint via `tag.Sum`), `hirigaray/go-listenbrainz`
 
-**TUI:** 100ms tick interval for progress updates. Position is calculated from elapsed wall-clock time with pause offset.
+**TUI:** 100ms tick interval for progress updates. Position is calculated from elapsed wall-clock time with pause offset. Right-edge **Tag** column appears when the current Track has Tags and terminal width ≥ 60.
 
-**Keyboard controls:** `←`/`→` prev/next track, `SPACE` pause/resume, `n` save note, `ESC`/`q` quit.
+**Keyboard controls:** `←`/`→` prev/next track, `SPACE` pause/resume, `[E]` earmark, `[P]` post, `[T]` tag, `[D]` delete, `ESC`/`q` quit.
+
+**Tag and Sum architecture:** See `CONTEXT.md` for the glossary (Track, Tag, Sum, Sum cache, Tag index) and `docs/adr/0001-tags-external-index.md` for why Tags live in a derpy-side index keyed by `tag.Sum` rather than being written into the audio file's ID3v2/Vorbis Comments.
 
 ## Development Directives
 
