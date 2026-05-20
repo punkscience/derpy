@@ -528,7 +528,64 @@ func (m *PlayerModel) View() string {
 	controls := "Controls: [←] Previous  [→] Next  [SPACE] Pause/Play  [E] Earmark  [P] Post  [D] Delete  [ESC] Quit"
 	content.WriteString(controlsStyle.Render(controls))
 
-	return content.String()
+	left := content.String()
+
+	// Right-edge tag column. Shown only when the current Track has Tags and
+	// the terminal is wide enough to fit a sensible two-column layout
+	// (threshold matches the grilling-session decision).
+	if right := renderTagsColumn(m.currentTags); right != "" && m.width >= twoColumnMinWidth {
+		return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	}
+	return left
+}
+
+// twoColumnMinWidth is the terminal width below which the right-edge Tag
+// column is dropped and the TUI falls back to a single-column layout.
+const twoColumnMinWidth = 60
+
+// tagColumnWidth is the fixed character width of the right-edge Tag column.
+// Tags longer than this are truncated with an ellipsis so the column stays
+// rectangular regardless of Tag length.
+const tagColumnWidth = 20
+
+// renderTagsColumn returns the vertical Tag stack rendered as a lipgloss
+// block, suitable for JoinHorizontal with the main content. Returns "" when
+// there are no Tags to display, signalling the caller to skip the column.
+func renderTagsColumn(tags []string) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	headerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#626262")).
+		Bold(true).
+		MarginLeft(2)
+	tagStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#626262")).
+		MarginLeft(2)
+
+	var sb strings.Builder
+	sb.WriteString(headerStyle.Render("tags"))
+	sb.WriteString("\n")
+	for _, t := range tags {
+		sb.WriteString(tagStyle.Render(truncateTag(t, tagColumnWidth)))
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+// truncateTag clips s to at most width runes, appending an ellipsis when
+// truncation actually happens. Operates on runes, not bytes, so it handles
+// Tags with multi-byte characters cleanly (even though NormalizeTags
+// currently only emits [a-z0-9 ]).
+func truncateTag(s string, width int) string {
+	if width <= 1 {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= width {
+		return s
+	}
+	return string(runes[:width-1]) + "…"
 }
 
 // renderProgressBar renders a progress bar

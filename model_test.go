@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -43,6 +44,92 @@ func TestTrackLoadedMsgStashesSumAndTags(t *testing.T) {
 	}
 	if m.artist != "Aphex Twin" || m.title != "Xtal" {
 		t.Errorf("metadata not applied: artist=%q title=%q", m.artist, m.title)
+	}
+}
+
+func TestRenderTagsColumnEmpty(t *testing.T) {
+	if got := renderTagsColumn(nil); got != "" {
+		t.Errorf("renderTagsColumn(nil) = %q, want \"\"", got)
+	}
+	if got := renderTagsColumn([]string{}); got != "" {
+		t.Errorf("renderTagsColumn([]) = %q, want \"\"", got)
+	}
+}
+
+func TestRenderTagsColumnContainsHeaderAndTags(t *testing.T) {
+	got := renderTagsColumn([]string{"jazz", "piano"})
+	if !strings.Contains(got, "tags") {
+		t.Errorf("renderTagsColumn missing header: %q", got)
+	}
+	if !strings.Contains(got, "jazz") {
+		t.Errorf("renderTagsColumn missing 'jazz': %q", got)
+	}
+	if !strings.Contains(got, "piano") {
+		t.Errorf("renderTagsColumn missing 'piano': %q", got)
+	}
+}
+
+func TestTruncateTag(t *testing.T) {
+	tests := []struct {
+		in    string
+		width int
+		want  string
+	}{
+		{"jazz", 20, "jazz"},
+		{"this is a very long tag", 10, "this is a…"},
+		{"exactly10c", 10, "exactly10c"},
+		{"exactly11ch", 10, "exactly11…"},
+		// Multi-byte safety even though NormalizeTags strips these — guards
+		// against future relaxation of the rule.
+		{"caféterrace", 5, "café…"},
+	}
+	for _, tt := range tests {
+		got := truncateTag(tt.in, tt.width)
+		if got != tt.want {
+			t.Errorf("truncateTag(%q, %d) = %q, want %q", tt.in, tt.width, got, tt.want)
+		}
+	}
+}
+
+// TestViewIncludesTagsWhenWideAndTagged verifies the right-edge column
+// shows up when (a) the current Track has Tags and (b) the terminal is at
+// or above twoColumnMinWidth.
+func TestViewIncludesTagsWhenWideAndTagged(t *testing.T) {
+	m := NewPlayerModel([]string{"a.flac"})
+	m.Update(trackLoadedMsg{sum: "s1", tags: []string{"jazz", "piano"}, title: "X", artist: "Y"})
+	m.width = 100
+
+	out := m.View()
+	if !strings.Contains(out, "jazz") {
+		t.Errorf("wide+tagged View missing 'jazz': %q", out)
+	}
+	if !strings.Contains(out, "tags") {
+		t.Errorf("wide+tagged View missing 'tags' header: %q", out)
+	}
+}
+
+func TestViewHidesTagsWhenUntagged(t *testing.T) {
+	m := NewPlayerModel([]string{"a.flac"})
+	m.Update(trackLoadedMsg{sum: "s1", tags: nil, title: "X", artist: "Y"})
+	m.width = 100
+
+	out := m.View()
+	// The literal word "tags" should not appear because there's no header,
+	// no tag content, and the existing single-column layout never mentions
+	// the word.
+	if strings.Contains(out, "tags") {
+		t.Errorf("untagged View should not contain 'tags' header: %q", out)
+	}
+}
+
+func TestViewHidesTagsWhenTerminalNarrow(t *testing.T) {
+	m := NewPlayerModel([]string{"a.flac"})
+	m.Update(trackLoadedMsg{sum: "s1", tags: []string{"jazz"}, title: "X", artist: "Y"})
+	m.width = twoColumnMinWidth - 1 // just below threshold
+
+	out := m.View()
+	if strings.Contains(out, "jazz") {
+		t.Errorf("narrow View should drop right column; saw 'jazz' in %q", out)
 	}
 }
 
