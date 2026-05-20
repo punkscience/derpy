@@ -5,7 +5,59 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"derpy/internal/filter"
 )
+
+func TestArgsToExpr(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"empty", nil, ""},
+		{"single word", []string{"jazz"}, "jazz"},
+		{"two single-word args ORed", []string{"jazz", "blues"}, "jazz OR blues"},
+		{"phrase (shell stripped quotes)", []string{"Front Line Assembly"}, `"Front Line Assembly"`},
+		{"expression with AND passed through", []string{"jazz AND piano"}, "jazz AND piano"},
+		{"expression with OR passed through", []string{"jazz OR blues"}, "jazz OR blues"},
+		{"expression with parens passed through", []string{"(jazz OR blues) AND piano"}, "(jazz OR blues) AND piano"},
+		{"pre-quoted phrase passed through", []string{`"Front Line Assembly"`}, `"Front Line Assembly"`},
+		{"phrase + single word", []string{"Front Line Assembly", "blues"}, `"Front Line Assembly" OR blues`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := argsToExpr(tt.args)
+			if got != tt.want {
+				t.Errorf("argsToExpr(%q) = %q, want %q", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestArgsToExprParses verifies the output of argsToExpr is always a valid
+// expression that ParseExpr accepts (regression test for the
+// "Front Line Assembly" bug — unexpected token "line").
+func TestArgsToExprParses(t *testing.T) {
+	inputs := [][]string{
+		{"Front Line Assembly"},
+		{"front line assembly"},
+		{"AC/DC"},
+		{"jazz", "blues"},
+		{"jazz AND piano"},
+		{"(jazz OR blues) AND piano"},
+		{"Front Line Assembly", "Skinny Puppy"},
+	}
+	for _, args := range inputs {
+		expr := argsToExpr(args)
+		if expr == "" {
+			continue
+		}
+		if _, err := filter.ParseExpr(expr); err != nil {
+			t.Errorf("argsToExpr(%q) = %q failed to parse: %v", args, expr, err)
+		}
+	}
+}
 
 func TestScanMusicDirectory(t *testing.T) {
 	// Create a temporary directory structure

@@ -20,6 +20,46 @@ func main() {
 	}
 }
 
+// argsToExpr converts positional CLI args into a keyword expression string.
+//
+// Multi-word args (e.g. `derpy "Front Line Assembly"` — quotes stripped by
+// the shell) are wrapped as a quoted phrase so the parser matches the path
+// substring literally. Args that already contain expression syntax
+// (AND/OR/parens/quotes) are passed through unchanged. Single-word args are
+// passed through. Multiple args are joined with OR.
+func argsToExpr(args []string) string {
+	parts := make([]string, len(args))
+	for i, a := range args {
+		if isPhraseArg(a) {
+			parts[i] = `"` + a + `"`
+		} else {
+			parts[i] = a
+		}
+	}
+	return strings.Join(parts, " OR ")
+}
+
+// isPhraseArg reports whether a single CLI arg should be wrapped as a
+// quoted phrase before parsing. True when the arg contains whitespace but
+// no expression syntax — meaning the user's quoting intent was lost to the
+// shell.
+func isPhraseArg(s string) bool {
+	if strings.ContainsAny(s, `"()`) {
+		return false
+	}
+	fields := strings.Fields(s)
+	if len(fields) <= 1 {
+		return false
+	}
+	for _, f := range fields {
+		switch strings.ToUpper(f) {
+		case "AND", "OR":
+			return false
+		}
+	}
+	return true
+}
+
 // rootCmd builds the top-level Cobra command for derpy.
 func rootCmd() *cobra.Command {
 	var noTUI bool
@@ -39,6 +79,14 @@ Keyword expression syntax (AND binds tighter than OR):
 
 Multiple expression arguments are joined with OR:
   derpy jazz blues  →  jazz OR blues
+
+A single argument containing spaces is treated as a phrase, since shells
+strip the surrounding quotes before derpy sees them:
+  derpy "Front Line Assembly"  →  "Front Line Assembly"
+
+To use boolean operators inside a single argument, include AND/OR/parens
+in the argument text:
+  derpy "jazz AND piano"
 
 Matching is case-insensitive against the full file path.`,
 		Args: cobra.ArbitraryArgs,
@@ -70,9 +118,7 @@ Matching is case-insensitive against the full file path.`,
 				return fmt.Errorf("no source directory specified — use --source <dir> or set a default with --set-default-source <dir>")
 			}
 
-			// Join multiple args with OR so "jazz blues" means "jazz OR blues".
-			exprStr := strings.Join(args, " OR ")
-			return runPlayer(musicDir, exprStr, noTUI)
+			return runPlayer(musicDir, argsToExpr(args), noTUI)
 		},
 	}
 
