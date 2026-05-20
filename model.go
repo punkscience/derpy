@@ -40,6 +40,13 @@ type PlayerModel struct {
 	nostrKeyForPost  bool   // true when key entry was triggered by [P] (public post) vs [E] (earmark)
 	nostrStatus      string // last Nostr result message shown to the user
 
+	// Tag and Sum state. The TagIndex and SumCache are loaded once at startup
+	// and shared across all track-loads. currentSum/currentTags refresh on
+	// each track change via the eager-compute step in loadCurrentTrack.
+	tagIndex    *TagIndex
+	sumCache    *SumCache
+	currentSum  string   // tag.Sum of the currently-playing Track, "" if unknown
+	currentTags []string // Tags applied to the currently-playing Track, nil if none
 }
 
 // Messages for the TUI
@@ -52,6 +59,8 @@ type trackLoadedMsg struct {
 	artist   string
 	title    string
 	album    string
+	sum      string   // tag.Sum of the loaded Track, "" if hashing failed
+	tags     []string // Tags applied to the loaded Track (defensive copy from TagIndex)
 }
 // nostrPublishedMsg is sent after a Nostr publish attempt completes.
 type nostrPublishedMsg struct {
@@ -76,13 +85,22 @@ type trackDeletedMsg struct {
 	err error
 }
 
-// NewPlayerModel creates a new player model
+// NewPlayerModel creates a new player model.
+//
+// The Tag index and Sum cache are loaded from disk here so the player has
+// them ready by the time the first trackLoadedMsg arrives. Load failures
+// degrade to empty in-memory copies — tag features go silent for the
+// session rather than blocking playback.
 func NewPlayerModel(playlist []string) *PlayerModel {
+	ti, _ := LoadTagIndex()
+	sc, _ := LoadSumCache()
 	return &PlayerModel{
 		playlist:     playlist,
 		currentIndex: 0,
 		player:       NewAudioPlayer(),
 		tickInterval: 100 * time.Millisecond, // Make tick interval configurable
+		tagIndex:     ti,
+		sumCache:     sc,
 	}
 }
 
@@ -343,6 +361,8 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.artist = msg.artist
 		m.title = msg.title
 		m.album = msg.album
+		m.currentSum = msg.sum
+		m.currentTags = msg.tags
 		// Notify MPRIS clients that metadata and status have changed.
 		m.mpris.NotifyStateChanged(m)
 		m.mpris.EmitSeeked(m) // Position jumped to 0 on track change.
@@ -535,7 +555,13 @@ func (m *PlayerModel) tickCmd() tea.Cmd {
 	})
 }
 
-// loadCurrentTrack loads and plays the current track
+// loadCurrentTrack loads and plays the current track.
+//
+// As part of the same goroutine we also compute the Track's Sum (using the
+// SumCache when valid, otherwise tag.Sum on the file) and look up its Tags.
+// Sum computation runs before LoadTrack so we don't contend with beep on
+// the same file handle. Sum/tag failures are non-fatal — playback proceeds
+// with sum="" and tags=nil, and the right-edge column simply stays empty.
 func (m *PlayerModel) loadCurrentTrack() tea.Cmd {
 	return func() tea.Msg {
 		if m.currentIndex >= len(m.playlist) {
@@ -543,6 +569,15 @@ func (m *PlayerModel) loadCurrentTrack() tea.Cmd {
 		}
 
 		track := m.playlist[m.currentIndex]
+
+		// Compute Sum + look up Tags before opening the file for playback.
+		// Failures here are non-fatal; we just play the track without tag
+		// awareness this session.
+		sum, _ := m.sumCache.LookupOrCompute(track)
+		var tags []string
+		if sum != "" {
+			tags = m.tagIndex.Get(sum)
+		}
 
 		// Load the track
 		if err := m.player.LoadTrack(track); err != nil {
@@ -559,6 +594,8 @@ func (m *PlayerModel) loadCurrentTrack() tea.Cmd {
 			artist:   m.player.GetArtist(),
 			title:    m.player.GetTitle(),
 			album:    m.player.GetAlbum(),
+			sum:      sum,
+			tags:     tags,
 		}
 	}
 }
