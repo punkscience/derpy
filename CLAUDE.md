@@ -43,3 +43,17 @@ go build -o derpy
 - Always write tests (`*_test.go` files) — the project currently has none and needs them
 - Refer to `.copilot/tech-spec.md` for feature tracking; mark features complete when done
 - Use Cobra for any new CLI commands (currently uses `flag` package — prefer Cobra per project rules)
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues on `punkscience/derpy` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout — one `CONTEXT.md` + `docs/adr/` at the repo root (created lazily by `/grill-with-docs`). See `docs/agents/domain.md`.
