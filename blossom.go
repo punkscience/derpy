@@ -371,7 +371,7 @@ func PrepareUpload(filePath string) ([]PreparedChunk, *BlossomManifest, error) {
 	}
 
 	var prepared []PreparedChunk
-	var manifestChunks []BlossomChunk
+	manifestChunks := []BlossomChunk{}
 	buf := make([]byte, blossomChunkSize)
 	index := 0
 
@@ -389,10 +389,10 @@ func PrepareUpload(filePath string) ([]PreparedChunk, *BlossomManifest, error) {
 		sum := sha256Hex(encrypted)
 		prepared = append(prepared, PreparedChunk{index: index, data: encrypted, sha256: sum})
 		manifestChunks = append(manifestChunks, BlossomChunk{
-			Index:  index,
-			SHA256: sum,
-			Size:   len(encrypted),
-			// Servers left empty — filled by UploadPrepared.
+			Index:   index,
+			SHA256:  sum,
+			Size:    len(encrypted),
+			Servers: []string{}, // filled by UploadPrepared; must be a non-nil slice so JSON emits [] not null
 		})
 		index++
 
