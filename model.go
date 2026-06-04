@@ -516,11 +516,11 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View renders the TUI
 func (m *PlayerModel) View() string {
 	if m.err != nil {
-		return fmt.Sprintf("Error: %v\nPress 'q' or 'esc' to quit", m.err)
+		return fmt.Sprintf("error: %v\nq or esc to quit", m.err)
 	}
 
 	if len(m.playlist) == 0 {
-		return "No tracks in playlist\nPress 'q' or 'esc' to quit"
+		return "silence.\nq or esc to quit"
 	}
 
 	// Determine track display
@@ -541,11 +541,11 @@ func (m *PlayerModel) View() string {
 	var content strings.Builder
 
 	// Title
-	content.WriteString(psTitle.Render("♪ derpy"))
+	content.WriteString(psTitle.Render("punk.science · derpy"))
 	content.WriteString("\n\n")
 
 	// Current track
-	content.WriteString(psTrack.Render(fmt.Sprintf("Playing: %s", trackDisplay)))
+	content.WriteString(psTrack.Render(trackDisplay))
 	content.WriteString("\n")
 
 	// Track info
@@ -554,12 +554,12 @@ func (m *PlayerModel) View() string {
 	content.WriteString("\n")
 
 	// Status
-	status := "■ Stopped"
+	status := "■ stopped"
 	if m.playing {
 		if m.paused {
-			status = "⏸ Paused"
+			status = "⏸ paused"
 		} else {
-			status = "▶ Playing"
+			status = "▶ playing"
 		}
 	}
 	content.WriteString(psStatus.Render(status))
@@ -582,9 +582,9 @@ func (m *PlayerModel) View() string {
 		// Mask the typed key with asterisks for security.
 		masked := strings.Repeat("*", len(m.nostrKeyBuffer))
 		content.WriteString("\n")
-		content.WriteString(psPrompt.Render("Nostr private key required."))
+		content.WriteString(psPrompt.Render("nostr key required."))
 		content.WriteString("\n")
-		content.WriteString(psPrompt.Render("Paste your nsec1... or hex key, then press ENTER (ESC to cancel):"))
+		content.WriteString(psPrompt.Render("paste nsec1... or hex key — enter to save, esc to cancel"))
 		content.WriteString("\n")
 		content.WriteString(psPrompt.Render(fmt.Sprintf("> %s", masked)))
 		return content.String()
@@ -602,13 +602,13 @@ func (m *PlayerModel) View() string {
 	// better to see it").
 	if m.tagEntry {
 		content.WriteString("\n")
-		content.WriteString(psPrompt.Render("Edit tags for current track."))
+		content.WriteString(psPrompt.Render("tags for this track."))
 		content.WriteString("\n")
-		content.WriteString(psPrompt.Render("Comma-separated. Letters/digits/spaces only; anything else is stripped."))
+		content.WriteString(psPrompt.Render("comma-separated · stripped to [a-z0-9 ]"))
 		content.WriteString("\n")
 		content.WriteString(psPrompt.Render(fmt.Sprintf("> %s", m.tagBuffer)))
 		content.WriteString("\n")
-		content.WriteString(psPrompt.Render("[ENTER] save  [ESC] cancel"))
+		content.WriteString(psPrompt.Render("enter save  esc cancel"))
 		return m.composeWithTagColumn(content.String())
 	}
 
@@ -621,7 +621,7 @@ func (m *PlayerModel) View() string {
 	}
 
 	// Controls
-	controls := "Controls: [←] Previous  [→] Next  [SPACE] Pause/Play  [E] Earmark  [P] Post  [T] Tag  [D] Delete  [ESC] Quit"
+	controls := "← prev  → next  space pause  e earmark  p post  t tag  d delete  esc quit"
 	content.WriteString(psControls.Render(controls))
 
 	return m.composeWithTagColumn(content.String())

@@ -261,7 +261,7 @@ func TestViewShowsTagEntryOverlay(t *testing.T) {
 	m.tagBuffer = "dnb"
 
 	out := m.View()
-	if !strings.Contains(out, "Edit tags for current track") {
+	if !strings.Contains(out, "tags for this track.") {
 		t.Errorf("tag-entry overlay header missing: %q", out)
 	}
 	if !strings.Contains(out, "dnb") {
