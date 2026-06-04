@@ -19,69 +19,63 @@ import "github.com/charmbracelet/lipgloss"
 var (
 	// psTitle is the app header: "punk.science · derpy".
 	// Bold PS Lime so it reads as the primary landmark of the UI.
+	// psTitle — Bold PS Lime: primary landmark, highest visual weight.
 	psTitle = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#C8DF00")).
+		Foreground(lipgloss.Color("#C8DF00")). // PS Lime
 		MarginBottom(1)
 
-	// psTrack is the currently-playing track name (artist - title).
-	// PS Cream: highest-contrast text, the thing the user most wants to read.
+	// psTrack — PS Cream: highest-contrast text on dark bg.
 	psTrack = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#F0EDE4")).
+		Foreground(lipgloss.Color("#F0EDE4")). // PS Cream
 		MarginBottom(1)
 
-	// psStatus is dim informational text: track count, play/pause state,
-	// time display, indexer progress.
+	// psStatus — PS Dark Grey: dim informational text.
 	psStatus = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#3A3A3A")).
+		Foreground(lipgloss.Color("#3A3A3A")). // PS Dark Grey
 		MarginBottom(1)
 
-	// psProgress colours the progress bar line (PS Lime).
+	// psProgress — PS Lime: active progress bar fill.
 	psProgress = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#C8DF00"))
+		Foreground(lipgloss.Color("#C8DF00")) // PS Lime
 
-	// psControls is the bottom controls hint line.
+	// psControls — PS Dark Grey: bottom hint, low visual priority.
 	psControls = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#3A3A3A")).
+		Foreground(lipgloss.Color("#3A3A3A")). // PS Dark Grey
 		MarginTop(2)
 
-	// psPrompt is used for interactive overlay prompts (tag entry, Nostr key
-	// entry). PS Lime draws the eye to the active input without alarming.
+	// psPrompt — PS Lime: draws the eye to active input overlays.
 	psPrompt = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#C8DF00")).
+		Foreground(lipgloss.Color("#C8DF00")). // PS Lime
 		MarginTop(1)
 
-	// psNostr is the transient Nostr action-result line (earmark saved,
-	// posted, queued, etc.). PS Olive is a step back from accent — visible
-	// but not competing with the track name.
+	// psNostr — PS Olive: transient feedback, one step back from accent.
 	psNostr = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#7A8800")).
+		Foreground(lipgloss.Color("#7A8800")). // PS Olive
 		MarginTop(1)
 
-	// psIndexer wraps the spinner + fraction line shown while the background
-	// sum-cache sweep is running.
+	// psIndexer — PS Dark Grey: background-sweep status, low priority.
 	psIndexer = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#3A3A3A")).
+		Foreground(lipgloss.Color("#3A3A3A")). // PS Dark Grey
 		MarginTop(1)
 
-	// psTagHeader is the "tags" column header in the right-edge tag column.
+	// psTagHeader — PS Dark Grey bold: right-column "tags" header.
 	psTagHeader = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#3A3A3A")).
+		Foreground(lipgloss.Color("#3A3A3A")). // PS Dark Grey
 		Bold(true)
 
-	// psTag is each individual tag string in the right-edge column.
+	// psTag — PS Dark Grey: individual tag strings in the right column.
 	psTag = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#3A3A3A"))
+		Foreground(lipgloss.Color("#3A3A3A")) // PS Dark Grey
 
-	// psDotLime / psDotOlive / psDotDarkOlive are the three individual dot
-	// styles for the indexer spinner. They are applied per-dot so the frame
-	// rotation can reassign colours without rebuilding styles each tick.
+	// psDotLime / psDotOlive / psDotDarkOlive — the three PS brand greens
+	// for the indexer spinner, applied per-dot so frame rotation is cheap.
 	psDotLime = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#C8DF00"))
+		Foreground(lipgloss.Color("#C8DF00")) // PS Lime
 
 	psDotOlive = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#7A8800"))
+		Foreground(lipgloss.Color("#7A8800")) // PS Olive
 
 	psDotDarkOlive = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#454E00"))
+		Foreground(lipgloss.Color("#454E00")) // PS Dark Olive
 )
