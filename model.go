@@ -56,11 +56,14 @@ type PlayerModel struct {
 	tagBuffer string
 
 	// Background-indexer progress. While indexingDone < indexingTotal the
-	// View shows a dim 'indexing N/M tracks…' line above the controls;
-	// the line vanishes when done catches total or when the indexer is
-	// not running (both fields zero).
+	// View shows an animated three-dot spinner above the controls; the line
+	// vanishes when done catches total or when the indexer is not running
+	// (both fields zero).
 	indexingDone  int
 	indexingTotal int
+	// spinnerFrame advances modulo 3 on each indexProgressMsg, driving the
+	// PS three-dot colour rotation (lime -> olive -> dark-olive).
+	spinnerFrame int
 }
 
 // indexProgressMsg is sent by IndexSource (running in a background
@@ -484,6 +487,7 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case indexProgressMsg:
 		m.indexingDone = msg.done
 		m.indexingTotal = msg.total
+		m.spinnerFrame = (m.spinnerFrame + 1) % 3
 		return m, nil
 
 	case tagsSavedMsg:
