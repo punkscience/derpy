@@ -620,7 +620,7 @@ func (m *PlayerModel) View() string {
 	// progress (0 < done < total). Disappears the moment it catches up,
 	// without leaving a blank line behind on the next render.
 	if m.indexingTotal > 0 && m.indexingDone < m.indexingTotal {
-		content.WriteString(psIndexer.Render(fmt.Sprintf("indexing %d/%d tracks…", m.indexingDone, m.indexingTotal)))
+		content.WriteString(m.renderIndexerSpinner())
 		content.WriteString("\n")
 	}
 
@@ -684,6 +684,26 @@ func truncateTag(s string, width int) string {
 }
 
 // renderProgressBar renders a progress bar
+// renderIndexerSpinner returns the PS three-dot motif with the N/M fraction
+// appended. Each call rotates the lime/olive/dark-olive colours across the
+// three dot positions based on m.spinnerFrame (0, 1, or 2), giving a cheap
+// left-to-right chasing animation that advances on every indexProgressMsg.
+func (m *PlayerModel) renderIndexerSpinner() string {
+	// dotStyles maps a frame offset to the ordered dot styles for that frame.
+	// Frame 0: lime · olive · dark-olive
+	// Frame 1: dark-olive · lime · olive
+	// Frame 2: olive · dark-olive · lime
+	allDots := [3]lipgloss.Style{psDotLime, psDotOlive, psDotDarkOlive}
+	f := m.spinnerFrame % 3
+	dot0 := allDots[f]
+	dot1 := allDots[(f+1)%3]
+	dot2 := allDots[(f+2)%3]
+
+	spinner := dot0.Render("●") + " " + dot1.Render("●") + " " + dot2.Render("●")
+	fraction := psStatus.Render(fmt.Sprintf(" %d/%d", m.indexingDone, m.indexingTotal))
+	return psIndexer.Render(spinner + fraction)
+}
+
 func (m *PlayerModel) renderProgressBar(width int) string {
 	if m.duration == 0 {
 		return strings.Repeat("─", width)

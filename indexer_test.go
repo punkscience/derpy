@@ -152,8 +152,13 @@ func TestViewShowsIndexingStatusLine(t *testing.T) {
 	m.indexingTotal = 42
 
 	out := m.View()
-	if !contains(out, "indexing 7/42 tracks") {
-		t.Errorf("View should show indexing status: %q", out)
+	// Spinner replaces the old static label: assert the dot motif and
+	// fraction are present, and the old 'indexing' label is gone.
+	if !contains(out, "●") {
+		t.Errorf("View should show spinner dot during indexing: %q", out)
+	}
+	if !contains(out, "7/42") {
+		t.Errorf("View should show indexer fraction 7/42: %q", out)
 	}
 }
 

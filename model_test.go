@@ -274,6 +274,44 @@ func TestViewShowsTagEntryOverlay(t *testing.T) {
 	}
 }
 
+// TestViewSpinnerRendersDotsWhenIndexing verifies that while an indexer sweep
+// is in progress the View renders the PS three-dot motif and the N/M fraction
+// instead of the old static "indexing N/M tracks…" label.
+func TestViewSpinnerRendersDotsWhenIndexing(t *testing.T) {
+	m := NewPlayerModel([]string{"a.flac"})
+	m.indexingTotal = 10
+	m.indexingDone = 3
+	m.spinnerFrame = 0
+	m.width = 80
+
+	out := m.View()
+
+	if !strings.Contains(out, "●") {
+		t.Errorf("spinner dot missing from View output: %q", out)
+	}
+	if !strings.Contains(out, "3/10") {
+		t.Errorf("indexer fraction '3/10' missing from View output: %q", out)
+	}
+	if strings.Contains(out, "indexing") {
+		t.Errorf("old static 'indexing' label should be gone; found it in: %q", out)
+	}
+}
+
+// TestSpinnerFrameModuloWraps verifies that spinnerFrame wraps correctly
+// after 3 increments so the animation loops cleanly.
+func TestSpinnerFrameModuloWraps(t *testing.T) {
+	m := NewPlayerModel([]string{"a.flac"})
+	m.indexingTotal = 10
+	m.spinnerFrame = 2
+
+	// Simulate one more indexProgressMsg arriving.
+	m.Update(indexProgressMsg{done: 3, total: 10})
+
+	if m.spinnerFrame != 0 {
+		t.Errorf("spinnerFrame after wrapping from 2 = %d, want 0", m.spinnerFrame)
+	}
+}
+
 // TestTrackLoadedMsgEmptyTagsOK verifies that an untagged track produces
 // nil currentTags rather than carrying stale tags from a previous track.
 func TestTrackLoadedMsgEmptyTagsOK(t *testing.T) {
