@@ -537,41 +537,20 @@ func (m *PlayerModel) View() string {
 		}
 	}
 
-	// Create styles
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#04B575")).
-		MarginBottom(1)
-
-	trackStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FAFAFA")).
-		MarginBottom(1)
-
-	statusStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#626262")).
-		MarginBottom(1)
-
-	progressStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#04B575"))
-
-	controlsStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#626262")).
-		MarginTop(2)
-
 	// Build the UI
 	var content strings.Builder
 
 	// Title
-	content.WriteString(titleStyle.Render("♪ derpy"))
+	content.WriteString(psTitle.Render("♪ derpy"))
 	content.WriteString("\n\n")
 
 	// Current track
-	content.WriteString(trackStyle.Render(fmt.Sprintf("Playing: %s", trackDisplay)))
+	content.WriteString(psTrack.Render(fmt.Sprintf("Playing: %s", trackDisplay)))
 	content.WriteString("\n")
 
 	// Track info
 	trackInfo := fmt.Sprintf("Track %d of %d", m.currentIndex+1, len(m.playlist))
-	content.WriteString(statusStyle.Render(trackInfo))
+	content.WriteString(psStatus.Render(trackInfo))
 	content.WriteString("\n")
 
 	// Status
@@ -583,39 +562,37 @@ func (m *PlayerModel) View() string {
 			status = "▶ Playing"
 		}
 	}
-	content.WriteString(statusStyle.Render(status))
+	content.WriteString(psStatus.Render(status))
 	content.WriteString("\n\n")
 
 	// Progress bar
 	progressBar := m.renderProgressBar(40)
-	content.WriteString(progressStyle.Render(progressBar))
+	content.WriteString(psProgress.Render(progressBar))
 	content.WriteString("\n")
 
 	// Time display
 	posStr := formatDuration(m.position)
 	durStr := formatDuration(m.duration)
 	timeDisplay := fmt.Sprintf("%s / %s", posStr, durStr)
-	content.WriteString(statusStyle.Render(timeDisplay))
+	content.WriteString(psStatus.Render(timeDisplay))
 	content.WriteString("\n")
 
 	// Nostr key-entry overlay: shown instead of controls while waiting for input.
 	if m.nostrKeyEntry {
-		promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).MarginTop(1)
 		// Mask the typed key with asterisks for security.
 		masked := strings.Repeat("*", len(m.nostrKeyBuffer))
 		content.WriteString("\n")
-		content.WriteString(promptStyle.Render("Nostr private key required."))
+		content.WriteString(psPrompt.Render("Nostr private key required."))
 		content.WriteString("\n")
-		content.WriteString(promptStyle.Render("Paste your nsec1... or hex key, then press ENTER (ESC to cancel):"))
+		content.WriteString(psPrompt.Render("Paste your nsec1... or hex key, then press ENTER (ESC to cancel):"))
 		content.WriteString("\n")
-		content.WriteString(promptStyle.Render(fmt.Sprintf("> %s", masked)))
+		content.WriteString(psPrompt.Render(fmt.Sprintf("> %s", masked)))
 		return content.String()
 	}
 
 	// Nostr status (last publish result).
 	if m.nostrStatus != "" {
-		nostrStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#A8D8A8")).MarginTop(1)
-		content.WriteString(nostrStyle.Render(m.nostrStatus))
+		content.WriteString(psNostr.Render(m.nostrStatus))
 		content.WriteString("\n")
 	}
 
@@ -624,15 +601,14 @@ func (m *PlayerModel) View() string {
 	// visible (see grilling decision: "you're editing what's there —
 	// better to see it").
 	if m.tagEntry {
-		promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).MarginTop(1)
 		content.WriteString("\n")
-		content.WriteString(promptStyle.Render("Edit tags for current track."))
+		content.WriteString(psPrompt.Render("Edit tags for current track."))
 		content.WriteString("\n")
-		content.WriteString(promptStyle.Render("Comma-separated. Letters/digits/spaces only; anything else is stripped."))
+		content.WriteString(psPrompt.Render("Comma-separated. Letters/digits/spaces only; anything else is stripped."))
 		content.WriteString("\n")
-		content.WriteString(promptStyle.Render(fmt.Sprintf("> %s", m.tagBuffer)))
+		content.WriteString(psPrompt.Render(fmt.Sprintf("> %s", m.tagBuffer)))
 		content.WriteString("\n")
-		content.WriteString(promptStyle.Render("[ENTER] save  [ESC] cancel"))
+		content.WriteString(psPrompt.Render("[ENTER] save  [ESC] cancel"))
 		return m.composeWithTagColumn(content.String())
 	}
 
@@ -640,14 +616,13 @@ func (m *PlayerModel) View() string {
 	// progress (0 < done < total). Disappears the moment it catches up,
 	// without leaving a blank line behind on the next render.
 	if m.indexingTotal > 0 && m.indexingDone < m.indexingTotal {
-		indexStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#626262")).MarginTop(1)
-		content.WriteString(indexStyle.Render(fmt.Sprintf("indexing %d/%d tracks…", m.indexingDone, m.indexingTotal)))
+		content.WriteString(psIndexer.Render(fmt.Sprintf("indexing %d/%d tracks…", m.indexingDone, m.indexingTotal)))
 		content.WriteString("\n")
 	}
 
 	// Controls
 	controls := "Controls: [←] Previous  [→] Next  [SPACE] Pause/Play  [E] Earmark  [P] Post  [T] Tag  [D] Delete  [ESC] Quit"
-	content.WriteString(controlsStyle.Render(controls))
+	content.WriteString(psControls.Render(controls))
 
 	return m.composeWithTagColumn(content.String())
 }
@@ -679,19 +654,11 @@ func renderTagsColumn(tags []string) string {
 	if len(tags) == 0 {
 		return ""
 	}
-	headerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#626262")).
-		Bold(true).
-		MarginLeft(2)
-	tagStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#626262")).
-		MarginLeft(2)
-
 	var sb strings.Builder
-	sb.WriteString(headerStyle.Render("tags"))
+	sb.WriteString(psTagHeader.Copy().MarginLeft(2).Render("tags"))
 	sb.WriteString("\n")
 	for _, t := range tags {
-		sb.WriteString(tagStyle.Render(truncateTag(t, tagColumnWidth)))
+		sb.WriteString(psTag.Copy().MarginLeft(2).Render(truncateTag(t, tagColumnWidth)))
 		sb.WriteString("\n")
 	}
 	return sb.String()
