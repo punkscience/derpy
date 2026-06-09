@@ -15,6 +15,28 @@ import (
 	"github.com/gopxl/beep/wav"
 )
 
+// deviceSampleRate is the fixed rate the output device is opened at. Every
+// track is resampled to this rate before playback so that files whose native
+// sample rate differs from the device do not play at the wrong speed/pitch.
+// 44100 Hz is chosen because the overwhelming majority of music is already at
+// that rate, so the common case incurs no resampling cost or quality loss.
+const deviceSampleRate beep.SampleRate = 44100
+
+// resampleQuality is the beep.Resample quality factor (higher = better quality,
+// more CPU). 4 is a good balance for music playback.
+const resampleQuality = 4
+
+// resampleForDevice wraps streamer so its output runs at deviceSampleRate.
+// When the source already matches the device rate the streamer is returned
+// unchanged — no resampler is inserted, so there is no cost or quality loss
+// for the common case.
+func resampleForDevice(streamer beep.Streamer, srcRate beep.SampleRate) beep.Streamer {
+	if srcRate == deviceSampleRate {
+		return streamer
+	}
+	return beep.Resample(resampleQuality, srcRate, deviceSampleRate, streamer)
+}
+
 // CompletionStreamer wraps a streamer to detect when it completes
 type CompletionStreamer struct {
 	beep.Streamer
@@ -43,6 +65,7 @@ func (cs *CompletionStreamer) IsCompleted() bool {
 // AudioPlayer manages audio playback
 type AudioPlayer struct {
 	streamer           beep.StreamSeekCloser
+	playbackStreamer   beep.Streamer
 	ctrl               *beep.Ctrl
 	format             beep.Format
 	playing            bool
@@ -127,6 +150,11 @@ func (ap *AudioPlayer) LoadTrack(filePath string) error {
 	ap.streamer = streamer
 	ap.format = format
 
+	// Resample to the fixed device rate. Seek/Len/duration math below all
+	// operate on the native streamer, so they stay correct; only the bytes
+	// handed to the speaker are rate-converted.
+	ap.playbackStreamer = resampleForDevice(streamer, format.SampleRate)
+
 	// Calculate duration
 	streamLen := streamer.Len()
 	ap.duration = format.SampleRate.D(streamLen)
@@ -139,7 +167,7 @@ func (ap *AudioPlayer) LoadTrack(filePath string) error {
 
 	// Initialize speaker only once per application lifecycle
 	if !ap.speakerInitialized {
-		if err := speakerInit(format.SampleRate, format.SampleRate.N(time.Second/10)); err != nil {
+		if err := speakerInit(deviceSampleRate, deviceSampleRate.N(time.Second/10)); err != nil {
 			return fmt.Errorf("failed to initialize speaker: %w", err)
 		}
 		ap.speakerInitialized = true
@@ -164,9 +192,10 @@ func (ap *AudioPlayer) Play() error {
 	// Give speaker time to fully clear
 	time.Sleep(10 * time.Millisecond)
 
-	// Create completion detector wrapper
+	// Create completion detector wrapper. Wrap the (possibly resampled)
+	// playback streamer so the speaker receives audio at the device rate.
 	ap.completionStream = &CompletionStreamer{
-		Streamer: ap.streamer,
+		Streamer: ap.playbackStreamer,
 	}
 
 	// Create control wrapper for pause/resume functionality
@@ -249,6 +278,7 @@ func (ap *AudioPlayer) Stop() {
 	// Clear references to prevent accumulation
 	ap.ctrl = nil
 	ap.completionStream = nil
+	ap.playbackStreamer = nil
 	ap.scrobbleTracker = nil
 }
 
