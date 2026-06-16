@@ -64,3 +64,32 @@ release:
     name: derpy
   draft: false
   prerelease: auto
+
+brews:
+  - repository:
+      owner: punkscience
+      name: homebrew-derpy
+    directory: Formula
+    homepage: "https://github.com/punkscience/derpy"
+    description: "Terminal music player — shuffles and plays a directory of audio files"
+    license: "MIT"
+    test: |
+      system "#{bin}/derpy", "version"
+    # Cross-repo push requires a token with contents:write on homebrew-derpy.
+    # Set the TAP_GITHUB_TOKEN secret in the derpy repo and pass it via
+    # the GORELEASER_FORCE_TOKEN or TAP_GITHUB_TOKEN env var in CI.
+    # For the default GITHUB_TOKEN (scoped to derpy only), use a PAT instead.
+
+nfpms:
+  - id: derpy
+    package_name: derpy
+    file_name_template: "{{ .PackageName }}_{{ .Version }}_{{ .Arch }}"
+    vendor: Punk Science Studios Inc
+    homepage: https://github.com/punkscience/derpy
+    maintainer: Darryl Wright <darryl@punkscience.ca>
+    description: "Terminal music player — shuffles and plays a directory of audio files"
+    license: MIT
+    formats:
+      - deb
+    section: sound
+    priority: optional
