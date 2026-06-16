@@ -143,6 +143,7 @@ Matching is case-insensitive against the full file path.`,
 	cmd.PersistentFlags().StringVar(&tagsFilter, "tags", "", "Filter to tracks tagged with any of these (comma-separated)")
 
 	// Subcommands
+	cmd.AddCommand(versionCmd())
 	cmd.AddCommand(tokenCmd())
 	cmd.AddCommand(nostrKeyCmd())
 	cmd.AddCommand(listCmd())
@@ -151,6 +152,20 @@ Matching is case-insensitive against the full file path.`,
 	cmd.AddCommand(earmarksCmd())
 
 	return cmd
+}
+
+// versionCmd returns the 'version' subcommand that prints the derpy version
+// string (injected at build time via ldflags, defaulting to "dev").
+func versionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print the derpy version",
+		Long:  `Print the derpy version string. The default "dev" value means this binary was built without goreleaser ldflags injection.`,
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, _ []string) {
+			fmt.Println(Version)
+		},
+	}
 }
 
 // tokenCmd returns the 'token' subcommand that stores a ListenBrainz token.
@@ -409,14 +424,14 @@ func listCmd() *cobra.Command {
 Requires a Nostr private key saved via 'derpy nostr-key <key>'.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := LoadConfig()
-			if err != nil || cfg.NostrPrivateKey == "" {
+			hexKey := resolveNostrKey()
+			if hexKey == "" {
 				return fmt.Errorf("no Nostr private key configured — run: derpy nostr-key <nsec_or_hex_key>")
 			}
 
 			fmt.Fprintln(cmd.OutOrStdout(), "Fetching earmarks from Nostr...")
 
-			earmarks, err := FetchEarmarks(cfg.NostrPrivateKey)
+			earmarks, err := FetchEarmarks(hexKey)
 			if err != nil {
 				return fmt.Errorf("could not fetch earmarks: %w", err)
 			}
@@ -757,14 +772,14 @@ Use --nuke to delete all Blossom chunks and wipe the earmark list entirely.
 Requires a Nostr private key saved via 'derpy nostr-key <key>'.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := LoadConfig()
-			if err != nil || cfg.NostrPrivateKey == "" {
+			hexKey := resolveNostrKey()
+			if hexKey == "" {
 				return fmt.Errorf("no Nostr private key configured — run: derpy nostr-key <nsec_or_hex_key>")
 			}
 
 				if nuke {
 					fmt.Fprintln(cmd.OutOrStdout(), "Fetching earmarks...")
-					n, err := NukeEarmarks(cfg.NostrPrivateKey)
+					n, err := NukeEarmarks(hexKey)
 					if err != nil {
 						return fmt.Errorf("nuke failed: %w", err)
 					}
@@ -778,7 +793,7 @@ Requires a Nostr private key saved via 'derpy nostr-key <key>'.`,
 
 			fmt.Fprintln(cmd.OutOrStdout(), "Fetching earmarks from Nostr...")
 
-			earmarks, err := FetchEarmarks(cfg.NostrPrivateKey)
+			earmarks, err := FetchEarmarks(hexKey)
 			if err != nil {
 				return fmt.Errorf("could not fetch earmarks: %w", err)
 			}

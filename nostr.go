@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 	"unicode"
@@ -92,6 +93,23 @@ func queryRelays(ctx context.Context, relays []string, filter nostr.Filter) *nos
 		}
 	}
 	return latest
+}
+
+// resolveNostrKey returns the user's Nostr private key (raw hex) following the
+// resolution order: DERPY_NOSTR_KEY env var → config file → empty string.
+// Used by the TUI to determine whether [E] and [P] controls should be shown
+// and by the key-entry handlers to decide when to prompt inline.
+func resolveNostrKey() string {
+	if env := os.Getenv("DERPY_NOSTR_KEY"); env != "" {
+		if hex, err := resolvePrivateKey(env); err == nil {
+			return hex
+		}
+	}
+	cfg, err := LoadConfig()
+	if err == nil && cfg.NostrPrivateKey != "" {
+		return cfg.NostrPrivateKey
+	}
+	return ""
 }
 
 // resolvePrivateKey accepts either a bech32 nsec1... string or a raw 64-char

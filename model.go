@@ -276,8 +276,8 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// The earmark is written to the local queue first (guarantees no
 			// data loss), then a Nostr publish is attempted in the background.
 			if m.playing {
-				cfg, err := LoadConfig()
-				if err != nil || cfg.NostrPrivateKey == "" {
+				hexKey := resolveNostrKey()
+				if hexKey == "" {
 					// No key configured — enter inline key-entry mode.
 					m.nostrKeyEntry = true
 					m.nostrKeyBuffer = ""
@@ -286,14 +286,14 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				// Key is available: earmark to private Nostr list.
 				m.nostrStatus = "Nostr: saving earmark..."
-				return m, m.saveEarmarkCmd(cfg.NostrPrivateKey)
+				return m, m.saveEarmarkCmd(hexKey)
 			}
 
 		case "p":
 			// Publish the current track as a public Nostr post with listen links.
 			if m.playing {
-				cfg, err := LoadConfig()
-				if err != nil || cfg.NostrPrivateKey == "" {
+				hexKey := resolveNostrKey()
+				if hexKey == "" {
 					m.nostrKeyEntry = true
 					m.nostrKeyBuffer = ""
 					m.nostrKeyForPost = true
@@ -301,7 +301,7 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.nostrStatus = "Nostr: searching for links and posting..."
-				return m, m.publishToNostr(cfg.NostrPrivateKey)
+				return m, m.publishToNostr(hexKey)
 			}
 
 		case "d":
@@ -624,8 +624,8 @@ func (m *PlayerModel) View() string {
 		content.WriteString("\n")
 	}
 
-	// Controls
-	controls := "← prev  → next  space pause  e earmark  p post  t tag  d delete  esc quit"
+	// Controls — hide [E] and [P] when no Nostr key is available from any source.
+	controls := renderControls(resolveNostrKey() != "")
 	content.WriteString(psControls.Render(controls))
 
 	return m.composeWithTagColumn(content.String())
@@ -684,6 +684,15 @@ func truncateTag(s string, width int) string {
 }
 
 // renderProgressBar renders a progress bar
+// renderControls returns the controls hint string, omitting [E] and [P] when
+// no Nostr key is available from any source (env, config, or inline).
+func renderControls(hasKey bool) string {
+	if hasKey {
+		return "← prev  → next  space pause  e earmark  p post  t tag  d delete  esc quit"
+	}
+	return "← prev  → next  space pause  t tag  d delete  esc quit"
+}
+
 // renderIndexerSpinner returns the PS three-dot motif with the N/M fraction
 // appended. Each call rotates the lime/olive/dark-olive colours across the
 // three dot positions based on m.spinnerFrame (0, 1, or 2), giving a cheap
@@ -963,11 +972,11 @@ func (m *PlayerModel) saveKeyAndAddEarmark(rawKey string) tea.Cmd {
 // soon as the app starts with connectivity.
 func (m *PlayerModel) flushQueueCmd() tea.Cmd {
 	return func() tea.Msg {
-		cfg, err := LoadConfig()
-		if err != nil || cfg.NostrPrivateKey == "" {
+		hexKey := resolveNostrKey()
+		if hexKey == "" {
 			return queueFlushedMsg{}
 		}
-		count, _ := FlushQueue(cfg.NostrPrivateKey)
+		count, _ := FlushQueue(hexKey)
 		return queueFlushedMsg{count: count}
 	}
 }
@@ -976,11 +985,11 @@ func (m *PlayerModel) flushQueueCmd() tea.Cmd {
 // days) and delete their Blossom chunks from all associated servers.
 func (m *PlayerModel) cleanupCmd() tea.Cmd {
 	return func() tea.Msg {
-		cfg, err := LoadConfig()
-		if err != nil || cfg.NostrPrivateKey == "" {
+		hexKey := resolveNostrKey()
+		if hexKey == "" {
 			return cleanupMsg{}
 		}
-		removed, _ := CleanupOldEarmarks(cfg.NostrPrivateKey)
+		removed, _ := CleanupOldEarmarks(hexKey)
 		return cleanupMsg{removed: removed}
 	}
 }

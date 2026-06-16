@@ -312,6 +312,53 @@ func TestSpinnerFrameModuloWraps(t *testing.T) {
 	}
 }
 
+// TestRenderControls verifies that [E] and [P] appear only when a key is available.
+func TestRenderControls(t *testing.T) {
+	tests := []struct {
+		name   string
+		hasKey bool
+		want   string
+		not    string
+	}{
+		{
+			name:   "with key",
+			hasKey: true,
+			want:   "e earmark",
+			not:    "",
+		},
+		{
+			name:   "without key",
+			hasKey: false,
+			want:   "",
+			not:    "e earmark  p post",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := renderControls(tt.hasKey)
+			if tt.want != "" && !strings.Contains(got, tt.want) {
+				t.Errorf("renderControls(%v) missing %q: %q", tt.hasKey, tt.want, got)
+			}
+			if tt.not != "" && strings.Contains(got, tt.not) {
+				t.Errorf("renderControls(%v) should not contain %q: %q", tt.hasKey, tt.not, got)
+			}
+		})
+	}
+}
+
+// TestViewControlsHideWhenNoKey verifies that renderControls(false) omits
+// [E] and [P] while preserving all other controls.
+func TestViewControlsHideWhenNoKey(t *testing.T) {
+	got := renderControls(false)
+
+	if strings.Contains(got, "e earmark") || strings.Contains(got, "p post") {
+		t.Errorf("renderControls(false) should not contain [E]/[P]: %q", got)
+	}
+	if !strings.Contains(got, "← prev") || !strings.Contains(got, "esc quit") {
+		t.Errorf("renderControls(false) missing basic controls: %q", got)
+	}
+}
+
 // TestTrackLoadedMsgEmptyTagsOK verifies that an untagged track produces
 // nil currentTags rather than carrying stale tags from a previous track.
 func TestTrackLoadedMsgEmptyTagsOK(t *testing.T) {
