@@ -23,7 +23,40 @@ Earmarks expire after 30 days. This is intentional. The list isn't a permanent a
 
 ## Installation
 
-Requires Go 1.21+. No system audio headers needed — audio runs over PulseAudio/PipeWire via pure Go.
+### One-liner (all platforms)
+
+```bash
+curl -fsSL https://punkscience.github.io/derpy/install.sh | bash
+```
+
+The script detects your OS and walks you through the right install.
+
+### Per-package-manager
+
+**Linux (Debian/Ubuntu):**
+
+```bash
+# Add the GPG key and APT source, then install
+curl -fsSL https://punkscience.github.io/derpy/apt/derpy-archive-keyring.gpg | sudo tee /usr/share/keyrings/derpy-archive-keyring.gpg
+echo 'deb [signed-by=/usr/share/keyrings/derpy-archive-keyring.gpg] https://punkscience.github.io/derpy/apt/ stable main' | sudo tee /etc/apt/sources.list.d/derpy.list
+sudo apt update && sudo apt install derpy
+```
+
+**macOS:**
+
+```bash
+brew install punkscience/homebrew-derpy/derpy
+```
+
+**Windows:**
+
+```powershell
+choco install derpy
+```
+
+### Build from source
+
+Requires Go 1.21+.
 
 ```bash
 git clone https://github.com/punkscience/derpy
@@ -73,8 +106,13 @@ Earmarks and public posts require a Nostr private key. Everything earmarked is N
 # Save your key (accepts nsec1... bech32 or raw hex)
 derpy nostr-key nsec1...
 
+# Or set it via environment variable (checked first)
+export DERPY_NOSTR_KEY=nsec1...
+
 # The app will also prompt for it inline the first time you press [E] or [P]
 ```
+
+Key resolution order: `DERPY_NOSTR_KEY` env var → config file → inline prompt.
 
 ## Blossom setup
 
