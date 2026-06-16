@@ -1,0 +1,66 @@
+# goreleaser configuration for derpy.
+# Triggered on git tag pushes and manual workflow_dispatch via
+# .github/workflows/release.yml.
+version: 2
+
+builds:
+  - id: derpy
+    binary: derpy
+    main: .
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+      - zip
+    # tar.gz for linux/darwin, zip for windows.
+    # goreleaser picks format suffix based on GOOS automatically,
+    # but we explicitly list both so each target gets its natural
+    # archive.
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+      - goos: linux
+        formats: [tar.gz]
+      - goos: darwin
+        formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ .Tag }}-dev"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+
+release:
+  github:
+    owner: punkscience
+    name: derpy
+  draft: false
+  prerelease: auto
