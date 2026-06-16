@@ -1,0 +1,93 @@
+name: Smoke Tests
+
+# Run after goreleaser creates a release. Each platform job is
+# independent — a failure on one platform gates only that platform.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Linux: apt install in Docker
+  # -----------------------------------------------------------------------
+  linux-smoke:
+    runs-on: ubuntu-latest
+    container: ubuntu:latest
+    steps:
+      - name: Install prerequisites
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq curl gnupg
+
+      - name: Set up APT repository
+        run: |
+          curl -fsSL https://punkscience.github.io/derpy/apt/derpy-archive-keyring.gpg \
+            -o /usr/share/keyrings/derpy-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/derpy-archive-keyring.gpg] https://punkscience.github.io/derpy/apt/ stable main" \
+            > /etc/apt/sources.list.d/derpy.list
+
+      - name: Install derpy via apt
+        run: |
+          apt-get update -qq
+          apt-get install -y derpy
+
+      - name: Verify version
+        run: |
+          EXPECTED="${{ github.event.release.tag_name }}"
+          ACTUAL="$(derpy version)"
+          echo "Expected: $EXPECTED"
+          echo "Actual:   $ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "ERROR: version mismatch"
+            exit 1
+          fi
+          echo "✓ Linux smoke test passed — derpy $ACTUAL"
+
+  # -----------------------------------------------------------------------
+  # macOS: brew install
+  # -----------------------------------------------------------------------
+  macos-smoke:
+    runs-on: macos-latest
+    steps:
+      - name: Install derpy via Homebrew
+        run: brew install punkscience/homebrew-derpy/derpy
+
+      - name: Verify version
+        run: |
+          EXPECTED="${{ github.event.release.tag_name }}"
+          ACTUAL="$(derpy version)"
+          echo "Expected: $EXPECTED"
+          echo "Actual:   $ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "ERROR: version mismatch"
+            exit 1
+          fi
+          echo "✓ macOS smoke test passed — derpy $ACTUAL"
+
+  # -----------------------------------------------------------------------
+  # Windows: choco install
+  # -----------------------------------------------------------------------
+  windows-smoke:
+    runs-on: windows-latest
+    steps:
+      - name: Install derpy via Chocolatey
+        run: choco install derpy -y
+        # Note: newly pushed Chocolatey packages enter moderation.
+        # This step may fail if the package has not yet been approved.
+        continue-on-error: true
+
+      - name: Verify version
+        if: success()
+        run: |
+          $EXPECTED = "${{ github.event.release.tag_name }}"
+          $ACTUAL = (derpy version)
+          Write-Output "Expected: $EXPECTED"
+          Write-Output "Actual:   $ACTUAL"
+          if ($ACTUAL -ne $EXPECTED) {
+            Write-Error "ERROR: version mismatch"
+            exit 1
+          }
+          Write-Output "✓ Windows smoke test passed — derpy $ACTUAL"
