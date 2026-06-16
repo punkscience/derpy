@@ -1,0 +1,23 @@
+Origin: Punk Science Studios Inc
+Label: derpy
+Suite: stable
+Codename: stable
+Architectures: amd64 arm64
+Components: main
+Description: APT repository for derpy — terminal music player
+Date: Tue, 16 Jun 2026 14:09:17 +0000
+MD5Sum:
+ da000286ef68bfb553d519290e3c07e8 536 main/binary-amd64/Packages
+ ade69f7a57a3759db5b787cb490133c5 410 main/binary-amd64/Packages.gz
+ 20c6a3e4145d45120e03991066c06fb2 506 main/binary-arm64/Packages
+ f78886625abb1dd25d1ee14c494a2452 396 main/binary-arm64/Packages.gz
+SHA1:
+ 7dc6e4b5616674025b95bc14ca3197ab764aafe9 536 main/binary-amd64/Packages
+ 01db0954e2f3d2815c2245b26e3bb2fb2c3dc40e 410 main/binary-amd64/Packages.gz
+ aa1d9e1ead65dc198f8f69b7641f0cbc7ea3019d 506 main/binary-arm64/Packages
+ f538a771683ae51f7cf454df28506ab16ace88ae 396 main/binary-arm64/Packages.gz
+SHA256:
+ 840a84464252f9008e1466113dd189811659f2b0888dc93026e360fd6657e467 536 main/binary-amd64/Packages
+ 6e1e0e60bf118c3b945315a58d1855c127c5e193c79a86bf3918d6371f56ebd6 410 main/binary-amd64/Packages.gz
+ 59e4a1560544c9a2af9da329284d9f16feac6c4e173028b48fc13589f400ad87 506 main/binary-arm64/Packages
+ ed0a61fa838009ca2f43114500fe28bc16700bf906d0a056fc0038651e6fdb03 396 main/binary-arm64/Packages.gz
