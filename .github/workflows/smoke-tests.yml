@@ -80,13 +80,13 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Install derpy via Chocolatey
-        run: choco install derpy -y
-        # Note: newly pushed Chocolatey packages enter moderation.
-        # This step may fail if the package has not yet been approved.
-        continue-on-error: true
+        run: |
+          choco install derpy -y
+          # Refresh PATH so 'derpy' is available in this session.
+          Import-Module $env:ChocolateyInstall\helpers\chocolateyProfile.psm1 -ErrorAction SilentlyContinue
+          refreshenv
 
       - name: Verify version
-        if: success()
         run: |
           $EXPECTED = "${{ github.event.release.tag_name || inputs.tag }}"
           $ACTUAL = (derpy version)
