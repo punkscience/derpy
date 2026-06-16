@@ -37,3 +37,4 @@ jobs:
           # on punkscience/homebrew-derpy, stored as TAP_GITHUB_TOKEN secret.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}

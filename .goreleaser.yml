@@ -93,3 +93,26 @@ nfpms:
       - deb
     section: sound
     priority: optional
+
+chocolateys:
+  - name: derpy
+    owners: punkscience
+    title: derpy
+    authors: Darryl Wright
+    project_url: https://github.com/punkscience/derpy
+    license_url: https://github.com/punkscience/derpy/blob/main/LICENSE
+    require_license_acceptance: false
+    project_source_url: https://github.com/punkscience/derpy
+    package_source_url: https://github.com/punkscience/derpy
+    docs_url: https://github.com/punkscience/derpy
+    bug_tracker_url: https://github.com/punkscience/derpy/issues
+    tags: music player terminal cli audio foss cross-platform
+    summary: Terminal music player — shuffles and plays a directory of audio files
+    description: |
+      derpy is a terminal-based music player written in Go. It recursively scans
+      a directory for audio files, shuffles them, and plays them with a Bubble
+      Tea TUI. Supports ListenBrainz scrobbling, Nostr earmarks, and encrypted
+      Blossom cloud backup. Audio formats: mp3, wav, flac, ogg, m4a, aac.
+    release_notes: "https://github.com/punkscience/derpy/releases/tag/{{ .Tag }}"
+    api_key: "{{ .Env.CHOCOLATEY_API_KEY }}"
+    source_repo: https://push.chocolatey.org/
