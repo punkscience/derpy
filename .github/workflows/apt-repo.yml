@@ -1,0 +1,101 @@
+name: APT Repository
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  apt-repo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+
+      - name: Set up APT repo directories
+        run: |
+          mkdir -p apt/pool/main
+          mkdir -p apt/dists/stable/main/binary-amd64
+          mkdir -p apt/dists/stable/main/binary-arm64
+
+      - name: Download .deb artifacts from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_TAG="${{ github.event.release.tag_name }}"
+          VERSION="${RELEASE_TAG#v}"
+          echo "Version: $VERSION"
+
+          # Download amd64 .deb
+          gh release download "$RELEASE_TAG" \
+            --pattern "derpy_${VERSION}_amd64.deb" \
+            --dir apt/pool/main
+          # Download arm64 .deb
+          gh release download "$RELEASE_TAG" \
+            --pattern "derpy_${VERSION}_arm64.deb" \
+            --dir apt/pool/main
+
+      - name: Generate Packages files
+        run: |
+          cd apt
+          # amd64
+          dpkg-scanpackages --arch amd64 pool/ > dists/stable/main/binary-amd64/Packages
+          gzip -9c dists/stable/main/binary-amd64/Packages > dists/stable/main/binary-amd64/Packages.gz
+          # arm64
+          dpkg-scanpackages --arch arm64 pool/ > dists/stable/main/binary-arm64/Packages
+          gzip -9c dists/stable/main/binary-arm64/Packages > dists/stable/main/binary-arm64/Packages.gz
+
+      - name: Generate Release file
+        run: |
+          cd apt/dists/stable
+          cat > Release <<EOF
+          Origin: Punk Science Studios Inc
+          Label: derpy
+          Suite: stable
+          Codename: stable
+          Architectures: amd64 arm64
+          Components: main
+          Description: APT repository for derpy — terminal music player
+          Date: $(date -Ru)
+          EOF
+          # Append checksums
+          {
+            echo "MD5Sum:"
+            find . -type f \( -name Packages -o -name Packages.gz \) | sort | xargs -I{} sh -c 'echo " $(md5sum {} | cut -d" " -f1) $(stat -c%s {}) $(echo {} | sed "s|^\./||")"'
+            echo "SHA1:"
+            find . -type f \( -name Packages -o -name Packages.gz \) | sort | xargs -I{} sh -c 'echo " $(sha1sum {} | cut -d" " -f1) $(stat -c%s {}) $(echo {} | sed "s|^\./||")"'
+            echo "SHA256:"
+            find . -type f \( -name Packages -o -name Packages.gz \) | sort | xargs -I{} sh -c 'echo " $(sha256sum {} | cut -d" " -f1) $(stat -c%s {}) $(echo {} | sed "s|^\./||")"'
+          } >> Release
+
+      - name: Sign Release file with GPG
+        if: env.APT_SIGNING_KEY != ''
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: |
+          # Import the GPG private key
+          echo "$APT_SIGNING_KEY" | gpg --batch --import
+          cd apt/dists/stable
+          # Generate InRelease (clearsigned)
+          gpg --batch --yes --default-key derpy-packaging@punkscience.ca \
+            --clearsign -o InRelease Release
+          # Generate Release.gpg (detached)
+          gpg --batch --yes --default-key derpy-packaging@punkscience.ca \
+            --detach-sign -o Release.gpg Release
+
+      - name: Commit and push to gh-pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add apt/
+          # Only commit if there are changes
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "apt: add derpy ${{ github.event.release.tag_name }} packages"
+            git push origin gh-pages
+          fi
