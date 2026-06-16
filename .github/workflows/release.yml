@@ -12,8 +12,6 @@ permissions:
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,10 +24,6 @@ jobs:
           go-version: "1.22"
           check-latest: true
 
-      - name: Export tag
-        id: tag
-        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-
       - name: Run goreleaser
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -39,90 +33,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
-
-  chocolatey:
-    needs: goreleaser
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download release artifacts
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $TAG = "${{ needs.goreleaser.outputs.tag }}"
-          $VERSION = $TAG -replace '^v', ''
-          mkdir -p tools
-          gh release download $TAG --pattern "derpy_${VERSION}_windows_amd64.zip" --dir tools
-          gh release download $TAG --pattern "checksums.txt" --dir tools
-          # Extract the binary
-          Expand-Archive -Path "tools/derpy_${VERSION}_windows_amd64.zip" -DestinationPath tools
-          Write-Output "VERSION=$VERSION" >> $env:GITHUB_ENV
-          Write-Output "TAG=$TAG" >> $env:GITHUB_ENV
-
-      - name: Create Chocolatey package files
-        run: |
-          $VERSION = "${{ env.VERSION }}"
-          $TAG = "${{ env.TAG }}"
-
-          # .nuspec
-          @"
-<?xml version="1.0" encoding="utf-8"?>
-<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
-  <metadata>
-    <id>derpy</id>
-    <version>$VERSION</version>
-    <title>derpy</title>
-    <authors>Darryl Wright</authors>
-    <owners>punkscience</owners>
-    <projectUrl>https://github.com/punkscience/derpy</projectUrl>
-    <licenseUrl>https://github.com/punkscience/derpy/blob/main/LICENSE</licenseUrl>
-    <requireLicenseAcceptance>false</requireLicenseAcceptance>
-    <projectSourceUrl>https://github.com/punkscience/derpy</projectSourceUrl>
-    <packageSourceUrl>https://github.com/punkscience/derpy</packageSourceUrl>
-    <docsUrl>https://github.com/punkscience/derpy</docsUrl>
-    <bugTrackerUrl>https://github.com/punkscience/derpy/issues</bugTrackerUrl>
-    <tags>music player terminal cli audio foss cross-platform</tags>
-    <summary>Terminal music player — shuffles and plays a directory of audio files</summary>
-    <description>derpy is a terminal-based music player written in Go. It recursively scans
-      a directory for audio files, shuffles them, and plays them with a Bubble
-      Tea TUI. Supports ListenBrainz scrobbling, Nostr earmarks, and encrypted
-      Blossom cloud backup. Audio formats: mp3, wav, flac, ogg, m4a, aac.</description>
-    <releaseNotes>https://github.com/punkscience/derpy/releases/tag/$TAG</releaseNotes>
-  </metadata>
-  <files>
-    <file src="tools\**" target="tools" />
-  </files>
-</package>
-"@ | Out-File -Encoding utf8 derpy.nuspec
-
-          # chocolateyInstall.ps1 with SHA256 verification
-          @"
-`$ErrorActionPreference = 'Stop'
-
-`$tag = '$TAG'
-`$version = '$VERSION'
-`$url = "https://github.com/punkscience/derpy/releases/download/`$tag/derpy_`$version_windows_amd64.zip"
-`$checksumUrl = "https://github.com/punkscience/derpy/releases/download/`$tag/checksums.txt"
-
-`$toolsDir = "`$(Split-Path -parent `$MyInvocation.MyCommand.Definition)"
-`$zipPath = Join-Path `$toolsDir "derpy_`$version_windows_amd64.zip"
-`$checksumsPath = Join-Path `$toolsDir "checksums.txt"
-
-# Download the zip and checksums
-Get-ChocolateyWebFile -PackageName 'derpy' -FileFullPath `$zipPath -Url `$url -ChecksumType 'sha256' -ChecksumUrl `$checksumUrl -ChecksumUrl64 `$checksumUrl
-
-# Extract and install
-Get-ChocolateyUnzip -FileFullPath `$zipPath -Destination `$toolsDir
-
-# Put derpy.exe on PATH
-Install-BinFile -Name 'derpy' -Path (Join-Path `$toolsDir 'derpy.exe')
-"@ | Out-File -Encoding utf8 tools\chocolateyInstall.ps1
-
-      - name: Pack and push to Chocolatey
-        env:
-          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
-        run: |
-          choco pack derpy.nuspec
-          choco push derpy.${{ env.VERSION }}.nupkg --source https://push.chocolatey.org/ --api-key $env:CHOCOLATEY_API_KEY
