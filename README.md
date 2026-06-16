@@ -106,13 +106,8 @@ Earmarks and public posts require a Nostr private key. Everything earmarked is N
 # Save your key (accepts nsec1... bech32 or raw hex)
 derpy nostr-key nsec1...
 
-# Or set it via environment variable (checked first)
-export DERPY_NOSTR_KEY=nsec1...
-
 # The app will also prompt for it inline the first time you press [E] or [P]
 ```
-
-Key resolution order: `DERPY_NOSTR_KEY` env var → config file → inline prompt.
 
 ## Blossom setup
 
