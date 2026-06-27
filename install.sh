@@ -94,26 +94,41 @@ install_macos() {
 }
 
 # ---------------------------------------------------------------------------
-# Windows: Chocolatey install
+# Windows: install via direct download or Chocolatey
 # ---------------------------------------------------------------------------
 install_windows() {
-    echo -e "${BOLD}📦 derpy installer — Windows (Chocolatey)${NC}"
-    echo ""
-    echo "  Run the following in an Administrator PowerShell:"
-    echo ""
-    echo "    choco install derpy"
-    echo ""
-    echo "  If you don't have Chocolatey installed, get it at:"
-    echo "    https://chocolatey.org/install"
+    echo -e "${BOLD}📦 derpy installer — Windows${NC}"
     echo ""
 
-    # Attempt automatic install if running under a shell that has choco.
-    if command -v choco &>/dev/null; then
-        echo "  choco found — installing now…"
-        choco install derpy -y
-        echo ""
-        echo -e "${GREEN}✓ derpy installed. Run: derpy --help${NC}"
+    local arch="amd64"
+    local tag="v1.0.0"
+    local version="1.0.0"
+
+    # Detect ARM64
+    if [ "$(uname -m)" = "aarch64" ] || [ "$PROCESSOR_ARCHITECTURE" = "ARM64" ]; then
+        arch="arm64"
     fi
+
+    local zip="derpy_${version}_windows_${arch}.zip"
+    local url="https://github.com/punkscience/derpy/releases/download/${tag}/${zip}"
+    local install_dir="$HOME/.local/bin"
+
+    mkdir -p "$install_dir"
+
+    echo "  → Downloading derpy ${tag} (${arch})…"
+    curl -fsSL "$url" -o "$TEMP/$zip"
+
+    echo "  → Extracting to $install_dir …"
+    unzip -o "$TEMP/$zip" -d "$install_dir"
+    rm -f "$TEMP/$zip"
+
+    echo ""
+    echo -e "${GREEN}✓ derpy installed to $install_dir/derpy.exe${NC}"
+    echo ""
+    echo "  Make sure $install_dir is on your PATH, or run:"
+    echo "    & \"$install_dir\\derpy.exe\" --help"
+    echo ""
+    echo "  Coming soon: choco install derpy"
 }
 
 # ---------------------------------------------------------------------------
