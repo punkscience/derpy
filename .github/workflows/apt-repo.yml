@@ -44,8 +44,8 @@ jobs:
           RELEASE_TAG="${{ steps.tag.outputs.tag }}"
           VERSION="${RELEASE_TAG#v}"
           echo "Version: $VERSION"
-          gh release download "$RELEASE_TAG" --pattern "derpy_${VERSION}_amd64.deb" --dir apt/pool/main
-          gh release download "$RELEASE_TAG" --pattern "derpy_${VERSION}_arm64.deb" --dir apt/pool/main
+          gh release download "$RELEASE_TAG" --pattern "derpy_${VERSION}_amd64.deb" --dir apt/pool/main --clobber
+          gh release download "$RELEASE_TAG" --pattern "derpy_${VERSION}_arm64.deb" --dir apt/pool/main --clobber
 
       - name: Generate Packages files
         run: |
