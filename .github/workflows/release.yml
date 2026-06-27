@@ -24,12 +24,22 @@ jobs:
           go-version: "1.22"
           check-latest: true
 
+      - name: Check if Homebrew token is configured
+        id: brew_check
+        run: |
+          if [ -n "${{ secrets.TAP_GITHUB_TOKEN }}" ]; then
+            echo "skip_brew=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip_brew=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::TAP_GITHUB_TOKEN not set — skipping Homebrew formula update"
+          fi
+
       - name: Run goreleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean
+          args: release --clean${{ steps.brew_check.outputs.skip_brew == 'true' && ' --skip=brews' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}

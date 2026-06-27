@@ -51,7 +51,13 @@ brew install punkscience/homebrew-derpy/derpy
 **Windows:**
 
 ```powershell
+# Via Chocolatey (once published to community repo)
 choco install derpy
+
+# Or download directly
+Invoke-WebRequest -Uri https://github.com/punkscience/derpy/releases/latest/download/derpy_windows_amd64.zip -OutFile derpy.zip
+Expand-Archive derpy.zip -DestinationPath .
+.\derpy.exe --help
 ```
 
 ### Build from source

@@ -45,11 +45,9 @@ jobs:
           VERSION="${RELEASE_TAG#v}"
           echo "Version: $VERSION"
 
-          # Download amd64 .deb
           gh release download "$RELEASE_TAG" \
             --pattern "derpy_${VERSION}_amd64.deb" \
             --dir apt/pool/main
-          # Download arm64 .deb
           gh release download "$RELEASE_TAG" \
             --pattern "derpy_${VERSION}_arm64.deb" \
             --dir apt/pool/main
@@ -57,54 +55,91 @@ jobs:
       - name: Generate Packages files
         run: |
           cd apt
-          # amd64
           dpkg-scanpackages --arch amd64 pool/ > dists/stable/main/binary-amd64/Packages
           gzip -9c dists/stable/main/binary-amd64/Packages > dists/stable/main/binary-amd64/Packages.gz
-          # arm64
           dpkg-scanpackages --arch arm64 pool/ > dists/stable/main/binary-arm64/Packages
           gzip -9c dists/stable/main/binary-arm64/Packages > dists/stable/main/binary-arm64/Packages.gz
 
       - name: Generate Release file
         run: |
           cd apt/dists/stable
-          cat > Release <<EOF
-          Origin: Punk Science Studios Inc
-          Label: derpy
-          Suite: stable
-          Codename: stable
-          Architectures: amd64 arm64
-          Components: main
-          Description: APT repository for derpy — terminal music player
-          Date: $(date -Ru)
-          EOF
-          # Append checksums
+          cat > Release <<'ENDOFRELEASE'
+Origin: Punk Science Studios Inc
+Label: derpy
+Suite: stable
+Codename: stable
+Architectures: amd64 arm64
+Components: main
+Description: APT repository for derpy — terminal music player
+ENDOFRELEASE
+          echo "Date: $(date -Ru)" >> Release
+
+          # Append checksums — no leading spaces (apt requires exactly one space)
           {
             echo "MD5Sum:"
-            find . -type f \( -name Packages -o -name Packages.gz \) | sort | xargs -I{} sh -c 'echo " $(md5sum {} | cut -d" " -f1) $(stat -c%s {}) $(echo {} | sed "s|^\./||")"'
+            find . -type f \( -name Packages -o -name Packages.gz \) | sort | while read f; do
+              printf " %s %s %s\n" "$(md5sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
+            done
             echo "SHA1:"
-            find . -type f \( -name Packages -o -name Packages.gz \) | sort | xargs -I{} sh -c 'echo " $(sha1sum {} | cut -d" " -f1) $(stat -c%s {}) $(echo {} | sed "s|^\./||")"'
+            find . -type f \( -name Packages -o -name Packages.gz \) | sort | while read f; do
+              printf " %s %s %s\n" "$(sha1sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
+            done
             echo "SHA256:"
-            find . -type f \( -name Packages -o -name Packages.gz \) | sort | xargs -I{} sh -c 'echo " $(sha256sum {} | cut -d" " -f1) $(stat -c%s {}) $(echo {} | sed "s|^\./||")"'
+            find . -type f \( -name Packages -o -name Packages.gz \) | sort | while read f; do
+              printf " %s %s %s\n" "$(sha256sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
+            done
           } >> Release
 
       - name: Sign Release file with GPG
-        if: env.APT_SIGNING_KEY != ''
         env:
           APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
         run: |
-          # Import the GPG private key
-          echo "$APT_SIGNING_KEY" | gpg --batch --import
-          cd apt/dists/stable
-          # Generate InRelease (clearsigned)
+          cd apt
+
+          # If a stored GPG key exists as a secret, use it.
+          # Otherwise generate a fresh one and warn the user to save it.
+          if [ -n "$APT_SIGNING_KEY" ]; then
+            echo "==> Using stored APT_SIGNING_KEY from secrets"
+            echo "$APT_SIGNING_KEY" | gpg --batch --import
+          else
+            echo "==> ⚠️  APT_SIGNING_KEY secret not set — generating a one-time key"
+            echo "==> Save the exported key below as APT_SIGNING_KEY secret for future runs!"
+            # Generate a key non-interactively
+            gpg --batch --generate-key <<GPGEOF
+Key-Type: RSA
+Key-Length: 4096
+Name-Real: derpy Packaging
+Name-Email: derpy-packaging@punkscience.ca
+Expire-Date: 0
+%no-protection
+%commit
+GPGEOF
+          fi
+
+          # Export the public key for the install script
+          mkdir -p apt
+          gpg --armor --export derpy-packaging@punkscience.ca > apt/derpy-archive-keyring.gpg
+
+          # Sign Release
+          cd dists/stable
           gpg --batch --yes --default-key derpy-packaging@punkscience.ca \
             --clearsign -o InRelease Release
-          # Generate Release.gpg (detached)
           gpg --batch --yes --default-key derpy-packaging@punkscience.ca \
             --detach-sign -o Release.gpg Release
 
+          # If we generated a new key, export it for the user to save
+          if [ -z "$APT_SIGNING_KEY" ]; then
+            echo ""
+            echo "============================================================"
+            echo "⚠️  SAVE THIS PRIVATE KEY AS THE 'APT_SIGNING_KEY' SECRET:"
+            echo "    Go to: https://github.com/punkscience/derpy/settings/secrets/actions"
+            echo "============================================================"
+            gpg --armor --export-secret-keys derpy-packaging@punkscience.ca
+            echo "============================================================"
+          fi
+
       - name: Copy install.sh to gh-pages root
         run: |
-          # Fetch install.sh from the main branch (the tagged release commit).
           curl -fsSL https://raw.githubusercontent.com/punkscience/derpy/main/install.sh -o install.sh
           chmod +x install.sh
 

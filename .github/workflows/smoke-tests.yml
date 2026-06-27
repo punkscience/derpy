@@ -74,22 +74,38 @@ jobs:
           echo "✓ macOS smoke test passed — derpy $ACTUAL"
 
   # -----------------------------------------------------------------------
-  # Windows: choco install
+  # Windows: direct download from release
   # -----------------------------------------------------------------------
   windows-smoke:
     runs-on: windows-latest
     steps:
-      - name: Install derpy via Chocolatey
+      - name: Determine release tag
+        id: tag
+        shell: bash
         run: |
-          choco install derpy -y
-          # Refresh PATH so 'derpy' is available in this session.
-          Import-Module $env:ChocolateyInstall\helpers\chocolateyProfile.psm1 -ErrorAction SilentlyContinue
-          refreshenv
+          if [ -n "${{ github.event.release.tag_name }}" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download and extract derpy
+        shell: pwsh
+        run: |
+          $TAG = "${{ steps.tag.outputs.tag }}"
+          $VERSION = $TAG -replace '^v', ''
+          $ARCH = if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -eq 'Arm64') { 'arm64' } else { 'amd64' }
+          $ZIP = "derpy_${VERSION}_windows_${ARCH}.zip"
+          $URL = "https://github.com/punkscience/derpy/releases/download/${TAG}/${ZIP}"
+          Write-Output "Downloading: $URL"
+          Invoke-WebRequest -Uri $URL -OutFile $env:TEMP\$ZIP
+          Expand-Archive -Path $env:TEMP\$ZIP -DestinationPath $env:TEMP\derpy
+          $env:PATH = "$env:TEMP\derpy;$env:PATH"
 
       - name: Verify version
         run: |
           $EXPECTED = "${{ github.event.release.tag_name || inputs.tag }}"
-          $ACTUAL = (derpy version)
+          $ACTUAL = (& "$env:TEMP\derpy\derpy.exe" version)
           Write-Output "Expected: $EXPECTED"
           Write-Output "Actual:   $ACTUAL"
           if ($ACTUAL -ne $EXPECTED) {

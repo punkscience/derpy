@@ -65,18 +65,16 @@ release:
   draft: false
   prerelease: auto
 
-# brews: disabled until TAP_GITHUB_TOKEN is configured with write access
-# to punkscience/homebrew-derpy.
-# brews:
-#   - repository:
-#       owner: punkscience
-#       name: homebrew-derpy
-#     directory: Formula
-#     homepage: "https://github.com/punkscience/derpy"
-#     description: "Terminal music player — shuffles and plays a directory of audio files"
-#     license: "MIT"
-#     test: |
-#       system "#{bin}/derpy", "version"
+brews:
+  - repository:
+      owner: punkscience
+      name: homebrew-derpy
+    directory: Formula
+    homepage: "https://github.com/punkscience/derpy"
+    description: "Terminal music player — shuffles and plays a directory of audio files"
+    license: "MIT"
+    test: |
+      system "#{bin}/derpy", "version"
 
 nfpms:
   - id: derpy

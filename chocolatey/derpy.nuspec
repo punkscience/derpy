@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>derpy</id>
+    <version>1.0.0</version>
+    <title>derpy</title>
+    <authors>Punk Science Studios Inc</authors>
+    <projectUrl>https://github.com/punkscience/derpy</projectUrl>
+    <licenseUrl>https://github.com/punkscience/derpy/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/punkscience/derpy</projectSourceUrl>
+    <docsUrl>https://github.com/punkscience/derpy#readme</docsUrl>
+    <bugTrackerUrl>https://github.com/punkscience/derpy/issues</bugTrackerUrl>
+    <tags>music player terminal tui audio mp3 flac</tags>
+    <summary>Terminal music player — shuffles and plays a directory of audio files</summary>
+    <description>
+# derpy
+
+A terminal music player with an opinion: shuffle everything, earmark what's hitting right, let the list expire.
+
+- Recursively scans a directory for audio files and shuffles them
+- Minimal TUI: current track, progress bar, nothing else
+- Filter playback by keyword expression
+- [E] earmark, [P] post to Nostr, [D] delete from disk
+- ListenBrainz scrobbling support
+
+## Supported formats
+
+MP3, FLAC, WAV, OGG, M4A, AAC
+    </description>
+    <releaseNotes>https://github.com/punkscience/derpy/releases/tag/v1.0.0</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>
