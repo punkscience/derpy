@@ -44,13 +44,8 @@ jobs:
           RELEASE_TAG="${{ steps.tag.outputs.tag }}"
           VERSION="${RELEASE_TAG#v}"
           echo "Version: $VERSION"
-
-          gh release download "$RELEASE_TAG" \
-            --pattern "derpy_${VERSION}_amd64.deb" \
-            --dir apt/pool/main
-          gh release download "$RELEASE_TAG" \
-            --pattern "derpy_${VERSION}_arm64.deb" \
-            --dir apt/pool/main
+          gh release download "$RELEASE_TAG" --pattern "derpy_${VERSION}_amd64.deb" --dir apt/pool/main
+          gh release download "$RELEASE_TAG" --pattern "derpy_${VERSION}_arm64.deb" --dir apt/pool/main
 
       - name: Generate Packages files
         run: |
@@ -62,77 +57,56 @@ jobs:
 
       - name: Generate Release file
         run: |
+          set -e
           cd apt/dists/stable
-          cat > Release <<'ENDOFRELEASE'
-Origin: Punk Science Studios Inc
-Label: derpy
-Suite: stable
-Codename: stable
-Architectures: amd64 arm64
-Components: main
-Description: APT repository for derpy — terminal music player
-ENDOFRELEASE
-          echo "Date: $(date -Ru)" >> Release
-
-          # Append checksums — no leading spaces (apt requires exactly one space)
-          {
-            echo "MD5Sum:"
-            find . -type f \( -name Packages -o -name Packages.gz \) | sort | while read f; do
-              printf " %s %s %s\n" "$(md5sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
-            done
-            echo "SHA1:"
-            find . -type f \( -name Packages -o -name Packages.gz \) | sort | while read f; do
-              printf " %s %s %s\n" "$(sha1sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
-            done
-            echo "SHA256:"
-            find . -type f \( -name Packages -o -name Packages.gz \) | sort | while read f; do
-              printf " %s %s %s\n" "$(sha256sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
-            done
-          } >> Release
+          printf 'Origin: Punk Science Studios Inc\n' > Release
+          printf 'Label: derpy\n' >> Release
+          printf 'Suite: stable\n' >> Release
+          printf 'Codename: stable\n' >> Release
+          printf 'Architectures: amd64 arm64\n' >> Release
+          printf 'Components: main\n' >> Release
+          printf 'Description: APT repository for derpy - terminal music player\n' >> Release
+          printf 'Date: %s\n' "$(date -Ru)" >> Release
+          printf '\nMD5Sum:\n' >> Release
+          find . -type f \( -name Packages -o -name Packages.gz \) | sort | while read f; do
+            printf " %s %s %s\n" "$(md5sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
+          done >> Release
+          printf '\nSHA1:\n' >> Release
+          find . -type f \( -name Packages -o -name Packages.gz \) | sort | while read f; do
+            printf " %s %s %s\n" "$(sha1sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
+          done >> Release
+          printf '\nSHA256:\n' >> Release
+          find . -type f \( -name Packages -o -name Packages.gz \) | sort | while read f; do
+            printf " %s %s %s\n" "$(sha256sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
+          done >> Release
 
       - name: Sign Release file with GPG
         env:
           APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
         run: |
-          cd apt
-
-          # If a stored GPG key exists as a secret, use it.
-          # Otherwise generate a fresh one and warn the user to save it.
+          set -e
           if [ -n "$APT_SIGNING_KEY" ]; then
             echo "==> Using stored APT_SIGNING_KEY from secrets"
             echo "$APT_SIGNING_KEY" | gpg --batch --import
           else
-            echo "==> ⚠️  APT_SIGNING_KEY secret not set — generating a one-time key"
+            echo "==> APT_SIGNING_KEY secret not set - generating a one-time key"
             echo "==> Save the exported key below as APT_SIGNING_KEY secret for future runs!"
-            # Generate a key non-interactively
-            gpg --batch --generate-key <<GPGEOF
-Key-Type: RSA
-Key-Length: 4096
-Name-Real: derpy Packaging
-Name-Email: derpy-packaging@punkscience.ca
-Expire-Date: 0
-%no-protection
-%commit
-GPGEOF
+            printf 'Key-Type: RSA\nKey-Length: 4096\nName-Real: derpy Packaging\nName-Email: derpy-packaging@punkscience.ca\nExpire-Date: 0\n%%no-protection\n%%commit\n' > /tmp/gpg-batch
+            gpg --batch --generate-key /tmp/gpg-batch
           fi
 
-          # Export the public key for the install script
           mkdir -p apt
           gpg --armor --export derpy-packaging@punkscience.ca > apt/derpy-archive-keyring.gpg
 
-          # Sign Release
-          cd dists/stable
-          gpg --batch --yes --default-key derpy-packaging@punkscience.ca \
-            --clearsign -o InRelease Release
-          gpg --batch --yes --default-key derpy-packaging@punkscience.ca \
-            --detach-sign -o Release.gpg Release
+          cd apt/dists/stable
+          gpg --batch --yes --default-key derpy-packaging@punkscience.ca --clearsign -o InRelease Release
+          gpg --batch --yes --default-key derpy-packaging@punkscience.ca --detach-sign -o Release.gpg Release
 
-          # If we generated a new key, export it for the user to save
           if [ -z "$APT_SIGNING_KEY" ]; then
             echo ""
             echo "============================================================"
-            echo "⚠️  SAVE THIS PRIVATE KEY AS THE 'APT_SIGNING_KEY' SECRET:"
-            echo "    Go to: https://github.com/punkscience/derpy/settings/secrets/actions"
+            echo "SAVE THIS PRIVATE KEY AS THE 'APT_SIGNING_KEY' SECRET:"
+            echo "  https://github.com/punkscience/derpy/settings/secrets/actions"
             echo "============================================================"
             gpg --armor --export-secret-keys derpy-packaging@punkscience.ca
             echo "============================================================"
