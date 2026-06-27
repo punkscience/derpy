@@ -31,9 +31,9 @@ curl -fsSL https://punkscience.github.io/derpy/install.sh | bash
 
 The script detects your OS and walks you through the right install.
 
-### Per-package-manager
+### Per package manager
 
-**Linux (Debian/Ubuntu):**
+#### Linux (Debian/Ubuntu) — APT
 
 ```bash
 # Add the GPG key and APT source, then install
@@ -42,22 +42,34 @@ echo 'deb [signed-by=/usr/share/keyrings/derpy-archive-keyring.gpg] https://punk
 sudo apt update && sudo apt install derpy
 ```
 
-**macOS:**
+Supports **amd64** and **arm64**. The APT repo is GPG-signed and hosted on GitHub Pages.
+
+#### macOS — Homebrew
 
 ```bash
 brew install punkscience/homebrew-derpy/derpy
 ```
 
-**Windows:**
+Supports **Intel** and **Apple Silicon**. Future releases auto-update the formula via goreleaser.
+
+#### Windows
+
+**Via Chocolatey** (submitted, pending moderation):
 
 ```powershell
-# Via Chocolatey (once published to community repo)
 choco install derpy
+```
 
-# Or download directly
+**Direct download** (available immediately):
+
+```powershell
+# amd64 (most systems)
 Invoke-WebRequest -Uri https://github.com/punkscience/derpy/releases/latest/download/derpy_windows_amd64.zip -OutFile derpy.zip
 Expand-Archive derpy.zip -DestinationPath .
 .\derpy.exe --help
+
+# arm64
+Invoke-WebRequest -Uri https://github.com/punkscience/derpy/releases/latest/download/derpy_windows_arm64.zip -OutFile derpy.zip
 ```
 
 ### Build from source
