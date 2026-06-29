@@ -1,16 +1,16 @@
 Package: derpy
-Version: 1.0.0
+Version: 1.0.1
 Architecture: amd64
+Architecture-Variant: amd64v1
 Maintainer: Darryl Wright <darryl@punkscience.ca>
 Installed-Size: 13228
-Filename: pool/main/derpy_1.0.0_amd64.deb
-Size: 5479652
-MD5sum: ff34c01552310bf1981459896dba1fbf
-SHA1: c88f325ce7e9295ff7151439f659a2a6f9a2f47e
-SHA256: 9d1da83af3db6abbc94d6684513659ca1e85b085e10bcf7af4422e54ba8fac5e
+Filename: pool/main/derpy_1.0.1_amd64.deb
+Size: 5479640
+MD5sum: 846054391fc83b85db27304afb84e417
+SHA1: 9d328421950ab38d22bcb0682b66bf4f3d4afe71
+SHA256: 9243cd831baca9e0de0f6fe51a7e4f9d4587b5f2510cc4b8e6ca452e14a653ae
 Section: sound
 Priority: optional
 Homepage: https://github.com/punkscience/derpy
 Description: Terminal music player — shuffles and plays a directory of audio files
-Architecture-Variant: amd64v1
 
