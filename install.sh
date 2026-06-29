@@ -45,6 +45,14 @@ install_linux() {
         echo ""
         echo "  Root privileges are required for steps 1-3."
         echo ""
+        # When piped via curl|bash or bash <(curl), $0 is /dev/fd/N which
+        # sudo cannot read. Re-fetch from the canonical URL in that case.
+        if [ ! -f "$0" ] || [ "${0#/dev/fd/}" != "$0" ]; then
+            SCRIPT_URL="https://punkscience.github.io/derpy/install.sh"
+            TMP_SCRIPT="$(mktemp /tmp/derpy-install.XXXXXX)"
+            curl -fsSL "$SCRIPT_URL" -o "$TMP_SCRIPT"
+            exec sudo bash "$TMP_SCRIPT"
+        fi
         exec sudo bash "$0"
     fi
 

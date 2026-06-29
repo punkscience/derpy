@@ -8,39 +8,39 @@ Codename: stable
 Architectures: amd64 arm64
 Components: main
 Description: APT repository for derpy - terminal music player
-Date: Mon, 29 Jun 2026 13:26:29 +0000
+Date: Mon, 29 Jun 2026 13:35:08 +0000
 
 MD5Sum:
  6d9216538fcaf52dae29d275f05179ec 536 main/binary-amd64/Packages
- 29c11c1f1c537a541f075b49d04bc4bd 411 main/binary-amd64/Packages.gz
+ 1d6e1a1bd8e824dcb935e2a8517e3c42 411 main/binary-amd64/Packages.gz
  1c0e78b4b2f2243dd7f7777e5c59d45c 506 main/binary-arm64/Packages
- 8eddf95b4fe71c4c959fd238ad894283 395 main/binary-arm64/Packages.gz
+ 0727b802dd8920c4c014f6a5528e9484 395 main/binary-arm64/Packages.gz
 
 SHA1:
  69feed7c8324e60f67bf7707bfc9066b30e94b77 536 main/binary-amd64/Packages
- 4b1fba68aa1c45ddbce086783083df237c74f2cb 411 main/binary-amd64/Packages.gz
+ 8be5c9d1ca7b044f2d78cdbea5baae985f07c792 411 main/binary-amd64/Packages.gz
  b1b13cc4969286e16f467529992c8e6135492023 506 main/binary-arm64/Packages
- 399ed310dca215aaf4245c84a0c3fa8c7e345f84 395 main/binary-arm64/Packages.gz
+ ec535251870d41923ff7c457f5ccf05b6f5890fd 395 main/binary-arm64/Packages.gz
 
 SHA256:
  bda2e3275c1ed25877a6d6ef4dec46978c41cbdb9169a4494be82c1103c7ef51 536 main/binary-amd64/Packages
- b3212e2f63eec894265ec76261065391803a6bd401d8a9a563a478421ed53555 411 main/binary-amd64/Packages.gz
+ a358c724e2c8b0442480a1886163d4a5cedaddd953043d61a63f674ffc37b77e 411 main/binary-amd64/Packages.gz
  b584885bcc39ee04678eb7ddbb9753bd8211ab19f71510e88551c54c76b87c23 506 main/binary-arm64/Packages
- 111d4f81a4ae9da29e152caf172eabaaf86a4a4820ad1bc8967d62b366f73be8 395 main/binary-arm64/Packages.gz
+ 1f72f916820a4346c6dd01ec2dfb7c216a74596bdaa3dc98fb89ab2faf19aae3 395 main/binary-arm64/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iQJTBAEBCgA9FiEENI9NmjLder6CyEJm3fWxvMEt35IFAmpCcoYfHGRlcnB5LXBh
-Y2thZ2luZ0BwdW5rc2NpZW5jZS5jYQAKCRDd9bG8wS3fkpgBD/9m+5EkDO1D6UaQ
-vxVJI//O8SAri5PNkA/TK4xU3kNP+25IRZYNhRBG4vJl9fd1wOwxoed8dMUBCNM9
-F0Rg4U061yAaEvBDQ32B+lPFQS1nIrFuwRb16j+LrIQzWEnUHuTyS6K7nwmCbdpc
-xvO6VWe4AoEawV1Yql4upM7ZIFjmssEu0BgiVEmiMzRZbkZinc5GSo/bbgmfFml1
-Vo+YeqiQxVNFHa4XaOYUoRORWwCsdihPn8l8A6NQX3tCmmgjuKGhGgMen2azt65h
-GJBYKpRXqBRPFkc0lvI+uulCMjqOScUriS/SjeCToLvYhVLtdvx835LHZh9lgqAn
-uPqdUdn6wjqN3zvrosDouLMfdQFdfDxA0triJ0ucGkp4yZU5pNY8LSVal7G4bCkR
-UovmzcKuiuPCN3MNqlb8hbk0IiSsiOznM/CrtH2JxR5qaM0nT6cDe2KE6mmtHW7i
-GWCKlXQBdQcMQ0uoxtRIeiM3eQ5zyhr/v2xvOnA2DTL50e2doHtUvUhQIfsEToyX
-vXWnCBP9ye88uMOhVDJnxTABgSf8oT+JfnFAXdJ0EqZP0PD+x4XZg3NYbji53Zi8
-jPcAoKjhS7FbKHqvuXX7ujI/aAR32hJFhR/1pVGkVT8YuxrXRwqh3/6NL7KTDmz8
-Y4k8lYWf5CEzrdGRt+rULkO3v1iYEg==
-=ve9q
+iQJTBAEBCgA9FiEENI9NmjLder6CyEJm3fWxvMEt35IFAmpCdI0fHGRlcnB5LXBh
+Y2thZ2luZ0BwdW5rc2NpZW5jZS5jYQAKCRDd9bG8wS3fkhm+EADE27/Epw0X5Ffo
+nspFxP0kYz9JeUnLfxkBzSqnEVflgvnP5DmUP+DTO6c4X++QRseHqf47V7wIdN63
+AXIFPMAB+OcXEd8ekxTWbKPHbwmILOKiuOCezWDFYKzGmZ5PquyaJoJwuidp4xNc
+mJxdeEntoiidovBkJGJCpP80tCpKYEl+jFtX24WCyDfw2WuOGOgOpqLZawNqeUKB
+uzaYhM7ZOHasQi7wwy7P6vhwgAkfEQA13sk0vdIV8Mo1P0tWt+rzmw8wiX34XIql
+u5rUTY8Ae6VkvIGuP6gY3g9toOzCdzvpuWCdJ9PVMl1zIpszIb0rLK4M7aWZcBki
+NikfZWc3Ao39hoTxwlXSPHGG1bqKz1D0JNnriULckbRp9YmiU8xBhAreQi7m9tEF
+imbcK59zHYTV3icFztUAXDMn2qldGlMYRV980Q3aBvczXdLTM1zDXX/dQKHUn1sA
+lXxYvITVCh27VdGyJOfFjLuRNE3Mqlpm+DiwoZrtgYRta2i0fg9KL3gExh8GGYhr
+DHZFMsbM/AJaTzNpqyBQj3flQQWDtspSpIZ43O8TxU+uFZ/MHCsW5Rgetdxw+8cq
+2vIsJcOBq5S+tdm02KghoDJ3nB1/DFtSMtWZSoUK7m9ItUm6j+3eXXkbZ7OCO0A5
+YEo28wdSfQBMMWj1ONiD67TmFEMXEw==
+=3tak
 -----END PGP SIGNATURE-----
