@@ -66,7 +66,7 @@ jobs:
           printf 'Architectures: amd64 arm64\n' >> Release
           printf 'Components: main\n' >> Release
           printf 'Description: APT repository for derpy - terminal music player\n' >> Release
-          printf 'Date: %s\n' "$(date -Ru)" >> Release
+          printf 'Date: %s\n' "$(date -u +"%a, %d %b %Y %H:%M:%S UTC")" >> Release
           printf '\nMD5Sum:\n' >> Release
           find . -type f \( -name Packages -o -name Packages.gz \) | sort | while read f; do
             printf " %s %s %s\n" "$(md5sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
