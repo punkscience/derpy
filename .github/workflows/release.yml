@@ -93,7 +93,7 @@ jobs:
         run: |
           $tag = "${{ steps.tag.outputs.tag }}"
           $version = "${{ steps.tag.outputs.version }}"
-          gh release download $tag --pattern "derpy_${version}_windows_amd64.zip" --pattern "checksums.txt" --clobber
+          gh release download $tag --repo "${{ github.repository }}" --pattern "derpy_${version}_windows_amd64.zip" --pattern "checksums.txt" --clobber
 
       - name: Read Windows checksum
         id: checksum
@@ -119,6 +119,7 @@ jobs:
           $sha256 = "${{ steps.checksum.outputs.sha256 }}"
           $pkgRoot = Join-Path $PWD "chocolatey-dist"
           $toolsDir = Join-Path $pkgRoot "tools"
+          $repoUrl = "${{ github.server_url }}/${{ github.repository }}"
           New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
 
           $nuspec = @"
@@ -129,16 +130,16 @@ jobs:
               <version>$version</version>
               <title>derpy</title>
               <authors>Punk Science Studios Inc</authors>
-              <projectUrl>https://github.com/punkscience/derpy</projectUrl>
-              <licenseUrl>https://github.com/punkscience/derpy/blob/main/LICENSE</licenseUrl>
+              <projectUrl>$repoUrl</projectUrl>
+              <licenseUrl>$repoUrl/blob/main/LICENSE</licenseUrl>
               <requireLicenseAcceptance>false</requireLicenseAcceptance>
-              <projectSourceUrl>https://github.com/punkscience/derpy</projectSourceUrl>
-              <docsUrl>https://github.com/punkscience/derpy#readme</docsUrl>
-              <bugTrackerUrl>https://github.com/punkscience/derpy/issues</bugTrackerUrl>
+              <projectSourceUrl>$repoUrl</projectSourceUrl>
+              <docsUrl>$repoUrl#readme</docsUrl>
+              <bugTrackerUrl>$repoUrl/issues</bugTrackerUrl>
               <tags>music player terminal tui audio mp3 flac</tags>
               <summary>Terminal music player — shuffles and plays a directory of audio files</summary>
               <description>A terminal music player with an opinion: shuffle everything, earmark what's hitting right, let the list expire.</description>
-              <releaseNotes>https://github.com/punkscience/derpy/releases/tag/$tag</releaseNotes>
+              <releaseNotes>$repoUrl/releases/tag/$tag</releaseNotes>
             </metadata>
             <files>
               <file src="tools\**" target="tools" />
@@ -153,7 +154,7 @@ jobs:
           `$toolsDir = Split-Path -Parent `$MyInvocation.MyCommand.Definition
           `$zipPath = Join-Path `$toolsDir 'derpy.zip'
 
-          Get-ChocolateyWebFile -PackageName 'derpy' -FileFullPath `$zipPath -Url64bit 'https://github.com/punkscience/derpy/releases/download/$tag/$archive' -Checksum64 '$sha256' -ChecksumType64 'sha256'
+          Get-ChocolateyWebFile -PackageName 'derpy' -FileFullPath `$zipPath -Url64bit '$repoUrl/releases/download/$tag/$archive' -Checksum64 '$sha256' -ChecksumType64 'sha256'
           Get-ChocolateyUnzip -FileFullPath `$zipPath -Destination `$toolsDir
           Remove-Item `$zipPath -Force
           "@
