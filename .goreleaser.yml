@@ -73,7 +73,7 @@ brews:
     directory: Formula
     homepage: "https://github.com/punkscience/derpy"
     description: "Terminal music player — shuffles and plays a directory of audio files"
-    license: "MIT"
+    license: "Unlicense"
     test: |
       system "#{bin}/derpy", "version"
 
@@ -85,7 +85,7 @@ nfpms:
     homepage: https://github.com/punkscience/derpy
     maintainer: Darryl Wright <darryl@punkscience.ca>
     description: "Terminal music player — shuffles and plays a directory of audio files"
-    license: MIT
+    license: Unlicense
     formats:
       - deb
     section: sound

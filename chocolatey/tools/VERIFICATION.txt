@@ -1,0 +1,26 @@
+VERIFICATION
+
+Verification is intended to assist the Chocolatey moderators and end users in
+verifying that this package's contents are authentic.
+
+This package downloads its binary at install time from the official GitHub
+Releases of the project:
+
+  https://github.com/punkscience/derpy/releases
+
+The download URL and the embedded SHA256 checksum in
+tools\chocolateyInstall.ps1 are generated automatically from the release's
+published checksums.txt by the project's chocolatey-publish.yml GitHub Actions
+workflow. Chocolatey verifies the SHA256 of the downloaded archive against that
+checksum during installation and aborts if it does not match.
+
+To verify manually:
+
+  1. Note the version, URL, and checksum in tools\chocolateyInstall.ps1.
+  2. Download the same .zip from the GitHub release above.
+  3. Compute its hash:
+       Get-FileHash -Algorithm SHA256 <file>.zip
+  4. Confirm it equals the checksum embedded in the install script, and that
+     the value also appears in that release's checksums.txt asset.
+
+The software is licensed under the terms in tools\LICENSE.txt.
