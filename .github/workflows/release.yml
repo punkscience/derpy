@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v1.0.0). Optional when run from a tag ref."
+        description: "Release tag (e.g. v1.0.0). Optional when run from a tag push or release event."
         required: false
         type: string
 
