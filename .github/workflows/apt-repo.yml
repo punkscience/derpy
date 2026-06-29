@@ -51,8 +51,11 @@ jobs:
         run: |
           cd apt
           dpkg-scanpackages --arch amd64 pool/ > dists/stable/main/binary-amd64/Packages
-          gzip -9c dists/stable/main/binary-amd64/Packages > dists/stable/main/binary-amd64/Packages.gz
           dpkg-scanpackages --arch arm64 pool/ > dists/stable/main/binary-arm64/Packages
+          # Strip non-standard Architecture-Variant field that confuses some apt versions
+          sed -i '/^Architecture-Variant:/d' dists/stable/main/binary-amd64/Packages
+          sed -i '/^Architecture-Variant:/d' dists/stable/main/binary-arm64/Packages
+          gzip -9c dists/stable/main/binary-amd64/Packages > dists/stable/main/binary-amd64/Packages.gz
           gzip -9c dists/stable/main/binary-arm64/Packages > dists/stable/main/binary-arm64/Packages.gz
 
       - name: Generate Release file
@@ -69,19 +72,19 @@ jobs:
           printf 'Date: %s\n' "$(date -u +"%a, %d %b %Y %H:%M:%S UTC")" >> Release
           printf '\nMD5Sum:\n' >> Release
           find . -type f \( -name Packages -o -name Packages.gz \) | sort | while read f; do
-            printf " %s %s %s\n" "$(md5sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
+            printf " %s %10s %s\n" "$(md5sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
           done >> Release
           printf '\nSHA1:\n' >> Release
           find . -type f \( -name Packages -o -name Packages.gz \) | sort | while read f; do
-            printf " %s %s %s\n" "$(sha1sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
+            printf " %s %10s %s\n" "$(sha1sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
           done >> Release
           printf '\nSHA256:\n' >> Release
           find . -type f \( -name Packages -o -name Packages.gz \) | sort | while read f; do
-            printf " %s %s %s\n" "$(sha256sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
+            printf " %s %10s %s\n" "$(sha256sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
           done >> Release
           printf '\nSHA512:\n' >> Release
           find . -type f \( -name Packages -o -name Packages.gz \) | sort | while read f; do
-            printf " %s %s %s\n" "$(sha512sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
+            printf " %s %10s %s\n" "$(sha512sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
           done >> Release
 
       - name: Sign Release file with GPG
