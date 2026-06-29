@@ -11,6 +11,7 @@ require (
 	github.com/gopxl/beep v1.4.1
 	github.com/hirigaray/go-listenbrainz v0.0.0-20241208212301-5487bfa2a78c
 	github.com/jfreymuth/pulse v0.1.1
+	github.com/nbd-wtf/go-nostr v0.52.3
 	github.com/spf13/cobra v1.10.2
 )
 
@@ -52,7 +53,6 @@ require (
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
-	github.com/nbd-wtf/go-nostr v0.52.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect

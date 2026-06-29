@@ -268,10 +268,13 @@ func runPlayer(musicDir string, exprStr string, tagsFilter string, noTUI bool) e
 		return fmt.Errorf("directory does not exist: %s", musicDir)
 	}
 
+	fmt.Printf("Scanning source directory: %s\n", musicDir)
+	fmt.Println("If startup appears stuck here, verify the source path is reachable (network/removable drives can block scans).")
 	playlist, err := scanMusicDirectory(musicDir, exprStr)
 	if err != nil {
 		return fmt.Errorf("error scanning directory: %w", err)
 	}
+	fmt.Printf("Scan complete. Found %d audio file(s).\n", len(playlist))
 	if len(playlist) == 0 {
 		if exprStr != "" {
 			return fmt.Errorf("no audio files matching %q found in directory: %s", exprStr, musicDir)
