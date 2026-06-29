@@ -1,9 +1,11 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"derpy/internal/filter"
@@ -65,6 +67,7 @@ func TestScanMusicDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
+
 	defer os.RemoveAll(tmpDir)
 
 	// Create structure:
@@ -166,5 +169,35 @@ func TestScanMusicDirectory(t *testing.T) {
 				t.Errorf("got %v, want %v", got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestRunPlayerPrintsStartupScanFeedback(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create stdout pipe: %v", err)
+	}
+	os.Stdout = w
+
+	runErr := runPlayer(tmpDir, "", "", true)
+
+	_ = w.Close()
+	os.Stdout = origStdout
+
+	out, _ := io.ReadAll(r)
+	output := string(out)
+	_ = r.Close()
+
+	if runErr == nil || !strings.Contains(runErr.Error(), "no audio files found in directory") {
+		t.Fatalf("expected no-audio-files error, got: %v", runErr)
+	}
+	if !strings.Contains(output, "Scanning source directory:") {
+		t.Fatalf("expected startup scan feedback in stdout, got: %q", output)
+	}
+	if !strings.Contains(output, "Scan complete. Found 0 audio file(s).") {
+		t.Fatalf("expected scan completion feedback in stdout, got: %q", output)
 	}
 }
