@@ -5,22 +5,22 @@ Codename: stable
 Architectures: amd64 arm64
 Components: main
 Description: APT repository for derpy - terminal music player
-Date: Mon, 29 Jun 2026 13:20:14 +0000
+Date: Mon, 29 Jun 2026 13:26:29 +0000
 
 MD5Sum:
- af612b7ee55f80464f3a5a9e8679456b 536 main/binary-amd64/Packages
- 235b2873f71819bfce28c01d46e20e63 410 main/binary-amd64/Packages.gz
+ 6d9216538fcaf52dae29d275f05179ec 536 main/binary-amd64/Packages
+ 29c11c1f1c537a541f075b49d04bc4bd 411 main/binary-amd64/Packages.gz
  1c0e78b4b2f2243dd7f7777e5c59d45c 506 main/binary-arm64/Packages
- 5953e398620f8d75c7107fec2f6d982a 395 main/binary-arm64/Packages.gz
+ 8eddf95b4fe71c4c959fd238ad894283 395 main/binary-arm64/Packages.gz
 
 SHA1:
- c2fab8c1e69892afde1352bb7627b07c6be62952 536 main/binary-amd64/Packages
- c2395d47c2cd02ea12e86265f2392b6c3bab35ea 410 main/binary-amd64/Packages.gz
+ 69feed7c8324e60f67bf7707bfc9066b30e94b77 536 main/binary-amd64/Packages
+ 4b1fba68aa1c45ddbce086783083df237c74f2cb 411 main/binary-amd64/Packages.gz
  b1b13cc4969286e16f467529992c8e6135492023 506 main/binary-arm64/Packages
- 973ec9cc01520b48238efd6d49ae62c8ed39a67a 395 main/binary-arm64/Packages.gz
+ 399ed310dca215aaf4245c84a0c3fa8c7e345f84 395 main/binary-arm64/Packages.gz
 
 SHA256:
- 2ffd31b4907dec0d8fd86ca2fa62d0163ba7f6d19fea5596f700fd46442d7fb4 536 main/binary-amd64/Packages
- 6d05ac472676acdeb3f9315652b69dedf609b49cb1a8e06a891bbd60ee1998e6 410 main/binary-amd64/Packages.gz
+ bda2e3275c1ed25877a6d6ef4dec46978c41cbdb9169a4494be82c1103c7ef51 536 main/binary-amd64/Packages
+ b3212e2f63eec894265ec76261065391803a6bd401d8a9a563a478421ed53555 411 main/binary-amd64/Packages.gz
  b584885bcc39ee04678eb7ddbb9753bd8211ab19f71510e88551c54c76b87c23 506 main/binary-arm64/Packages
- 45a13e8ca8472b41784fc1e95d897eeaa02417daed6c2fbd22d505e32ecefb22 395 main/binary-arm64/Packages.gz
+ 111d4f81a4ae9da29e152caf172eabaaf86a4a4820ad1bc8967d62b366f73be8 395 main/binary-arm64/Packages.gz
