@@ -86,7 +86,7 @@ jobs:
             throw "Could not determine release tag. Provide workflow_dispatch input 'tag'."
           }
 
-          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+([\-+][0-9A-Za-z\.-]+)?$') {
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$') {
             throw "Invalid tag format '$tag'. Expected vMAJOR.MINOR.PATCH (optionally with prerelease/build suffix)."
           }
 
