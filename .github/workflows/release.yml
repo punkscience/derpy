@@ -70,16 +70,24 @@ jobs:
         shell: pwsh
         run: |
           $tag = ""
-          if ("${{ github.ref }}" -like "refs/tags/*") {
-            $tag = "${{ github.ref_name }}"
-          } elseif ("${{ github.event.release.tag_name }}" -ne "") {
-            $tag = "${{ github.event.release.tag_name }}"
-          } elseif ("${{ inputs.tag }}" -ne "") {
-            $tag = "${{ inputs.tag }}"
+          $ref = "${{ github.ref }}"
+          $refName = "${{ github.ref_name }}"
+          $releaseTag = "${{ github.event.release.tag_name }}"
+          $inputTag = "${{ inputs.tag }}"
+          if ($ref -like "refs/tags/*" -and -not [string]::IsNullOrWhiteSpace($refName)) {
+            $tag = $refName
+          } elseif (-not [string]::IsNullOrWhiteSpace($releaseTag)) {
+            $tag = $releaseTag
+          } elseif (-not [string]::IsNullOrWhiteSpace($inputTag)) {
+            $tag = $inputTag
           }
 
           if (-not $tag) {
             throw "Could not determine release tag. Provide workflow_dispatch input 'tag'."
+          }
+
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+([\-+][0-9A-Za-z\.-]+)?$') {
+            throw "Invalid tag format '$tag'. Expected vMAJOR.MINOR.PATCH (optionally with prerelease/build suffix)."
           }
 
           $version = $tag.TrimStart("v")
@@ -181,8 +189,9 @@ jobs:
             throw "CHOCOLATEY_API_KEY is not set."
           }
           $pkgRoot = "${{ steps.package.outputs.pkg_root }}"
-          $pkg = Get-ChildItem (Join-Path $pkgRoot "*.nupkg") | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if (-not $pkg) {
-            throw "No .nupkg produced by choco pack"
+          $version = "${{ steps.tag.outputs.version }}"
+          $pkgPath = Join-Path $pkgRoot "derpy.$version.nupkg"
+          if (-not (Test-Path $pkgPath)) {
+            throw "Expected package not found: $pkgPath"
           }
-          choco push $pkg.FullName --source https://push.chocolatey.org/ --api-key $env:CHOCOLATEY_API_KEY
+          choco push $pkgPath --source https://push.chocolatey.org/ --api-key $env:CHOCOLATEY_API_KEY
