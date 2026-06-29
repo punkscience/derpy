@@ -12,5 +12,4 @@ Section: sound
 Priority: optional
 Homepage: https://github.com/punkscience/derpy
 Description: Terminal music player — shuffles and plays a directory of audio files
-Architecture-Variant: amd64v1
 
