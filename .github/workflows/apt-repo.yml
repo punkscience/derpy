@@ -85,15 +85,37 @@ jobs:
           APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
         run: |
           set -e
-          if [ -n "$APT_SIGNING_KEY" ]; then
-            echo "==> Using stored APT_SIGNING_KEY from secrets"
-            echo "$APT_SIGNING_KEY" | gpg --batch --import
-          else
-            echo "==> APT_SIGNING_KEY secret not set - generating a one-time key"
-            echo "==> Save the exported key below as APT_SIGNING_KEY secret for future runs!"
-            printf 'Key-Type: RSA\nKey-Length: 4096\nName-Real: derpy Packaging\nName-Email: derpy-packaging@punkscience.ca\nExpire-Date: 0\n%%no-protection\n%%commit\n' > /tmp/gpg-batch
-            gpg --batch --generate-key /tmp/gpg-batch
+
+          if [ -z "$APT_SIGNING_KEY" ]; then
+            echo "::error::APT_SIGNING_KEY secret is not set."
+            echo ""
+            echo "The APT repository requires a persistent GPG signing key."
+            echo "Generate one locally and add it as a repository secret:"
+            echo ""
+            echo "  1. Generate a key:"
+            echo "     gpg --batch --gen-key <<EOF"
+            echo "     Key-Type: RSA"
+            echo "     Key-Length: 4096"
+            echo "     Name-Real: derpy Packaging"
+            echo "     Name-Email: derpy-packaging@punkscience.ca"
+            echo "     Expire-Date: 0"
+            echo "     %no-protection"
+            echo "     %commit"
+            echo "     EOF"
+            echo ""
+            echo "  2. Export the private key:"
+            echo "     gpg --armor --export-secret-keys derpy-packaging@punkscience.ca"
+            echo ""
+            echo "  3. Add it as APT_SIGNING_KEY at:"
+            echo "     https://github.com/punkscience/derpy/settings/secrets/actions"
+            echo ""
+            echo "  4. Export the public key and commit it to gh-pages:"
+            echo "     gpg --armor --export derpy-packaging@punkscience.ca > apt/derpy-archive-keyring.gpg"
+            exit 1
           fi
+
+          echo "==> Importing APT_SIGNING_KEY from secrets"
+          echo "$APT_SIGNING_KEY" | gpg --batch --import
 
           mkdir -p apt
           gpg --armor --export derpy-packaging@punkscience.ca > apt/derpy-archive-keyring.gpg
@@ -101,16 +123,6 @@ jobs:
           cd apt/dists/stable
           gpg --batch --yes --default-key derpy-packaging@punkscience.ca --clearsign -o InRelease Release
           gpg --batch --yes --default-key derpy-packaging@punkscience.ca --detach-sign -o Release.gpg Release
-
-          if [ -z "$APT_SIGNING_KEY" ]; then
-            echo ""
-            echo "============================================================"
-            echo "SAVE THIS PRIVATE KEY AS THE 'APT_SIGNING_KEY' SECRET:"
-            echo "  https://github.com/punkscience/derpy/settings/secrets/actions"
-            echo "============================================================"
-            gpg --armor --export-secret-keys derpy-packaging@punkscience.ca
-            echo "============================================================"
-          fi
 
       - name: Copy install.sh to gh-pages root
         run: |
