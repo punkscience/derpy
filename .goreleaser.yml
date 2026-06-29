@@ -69,6 +69,7 @@ brews:
   - repository:
       owner: punkscience
       name: homebrew-derpy
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     directory: Formula
     homepage: "https://github.com/punkscience/derpy"
     description: "Terminal music player — shuffles and plays a directory of audio files"

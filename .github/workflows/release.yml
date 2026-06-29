@@ -35,11 +35,22 @@ jobs:
           fi
 
       - name: Run goreleaser
+        if: steps.brew_check.outputs.skip_brew == 'false'
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean${{ steps.brew_check.outputs.skip_brew == 'true' && ' --skip=brews' || '' }}
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+
+      - name: Run goreleaser (skip Homebrew)
+        if: steps.brew_check.outputs.skip_brew == 'true'
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean --skip=brews
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
