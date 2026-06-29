@@ -79,6 +79,10 @@ jobs:
           find . -type f \( -name Packages -o -name Packages.gz \) | sort | while read f; do
             printf " %s %s %s\n" "$(sha256sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
           done >> Release
+          printf '\nSHA512:\n' >> Release
+          find . -type f \( -name Packages -o -name Packages.gz \) | sort | while read f; do
+            printf " %s %s %s\n" "$(sha512sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" "$(echo "$f" | sed 's|^\./||')"
+          done >> Release
 
       - name: Sign Release file with GPG
         env:
