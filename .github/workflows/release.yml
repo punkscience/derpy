@@ -170,7 +170,7 @@ jobs:
           Get-ChocolateyUnzip -FileFullPath `$zipPath -Destination `$toolsDir
           `$exe = Get-ChildItem -Path `$toolsDir -Filter 'derpy.exe' -Recurse | Select-Object -First 1
           if (-not `$exe) {
-            throw 'derpy.exe not found after package extraction.'
+            throw "derpy.exe not found in tools directory after package extraction (`$toolsDir)."
           }
           if (`$exe.DirectoryName -ne `$toolsDir) {
             Move-Item -Path `$exe.FullName -Destination (Join-Path `$toolsDir 'derpy.exe') -Force
@@ -187,7 +187,7 @@ jobs:
           $pkgRoot = "${{ steps.package.outputs.pkg_root }}"
           choco pack (Join-Path $pkgRoot "derpy.nuspec") --outputdirectory $pkgRoot
           if ($LASTEXITCODE -ne 0) {
-            throw "choco pack failed."
+            throw "choco pack failed with exit code $LASTEXITCODE."
           }
 
       - name: Push Chocolatey package
@@ -206,5 +206,5 @@ jobs:
           }
           choco push $pkgPath --source https://push.chocolatey.org/ --api-key $env:CHOCOLATEY_API_KEY
           if ($LASTEXITCODE -ne 0) {
-            throw "choco push failed."
+            throw "choco push failed with exit code $LASTEXITCODE for package $pkgPath."
           }
