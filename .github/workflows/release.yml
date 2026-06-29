@@ -93,7 +93,11 @@ jobs:
         run: |
           $tag = "${{ steps.tag.outputs.tag }}"
           $version = "${{ steps.tag.outputs.version }}"
-          gh release download $tag --repo "${{ github.repository }}" --pattern "derpy_${version}_windows_amd64.zip" --pattern "checksums.txt" --clobber
+          $archive = "derpy_${version}_windows_amd64.zip"
+          gh release download $tag --repo "${{ github.repository }}" --pattern $archive --pattern "checksums.txt" --clobber
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $archive) -or -not (Test-Path "checksums.txt")) {
+            throw "Failed to download release assets for tag '$tag'. Expected files: '$archive' and 'checksums.txt'."
+          }
 
       - name: Read Windows checksum
         id: checksum
@@ -173,6 +177,9 @@ jobs:
         env:
           CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
         run: |
+          if (-not $env:CHOCOLATEY_API_KEY) {
+            throw "CHOCOLATEY_API_KEY is not set."
+          }
           $pkgRoot = "${{ steps.package.outputs.pkg_root }}"
           $pkg = Get-ChildItem (Join-Path $pkgRoot "*.nupkg") | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if (-not $pkg) {
