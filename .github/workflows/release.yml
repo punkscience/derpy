@@ -86,8 +86,8 @@ jobs:
             throw "Could not determine release tag. Provide workflow_dispatch input 'tag'."
           }
 
-          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$') {
-            throw "Invalid tag format '$tag'. Expected vMAJOR.MINOR.PATCH (optionally with prerelease/build suffix)."
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
+            throw "Invalid tag format '$tag'. Expected vMAJOR.MINOR.PATCH."
           }
 
           $version = $tag.TrimStart("v")
@@ -168,6 +168,13 @@ jobs:
 
           Get-ChocolateyWebFile -PackageName 'derpy' -FileFullPath `$zipPath -Url64bit '$repoUrl/releases/download/$tag/$archive' -Checksum64 '$sha256' -ChecksumType64 'sha256'
           Get-ChocolateyUnzip -FileFullPath `$zipPath -Destination `$toolsDir
+          `$exe = Get-ChildItem -Path `$toolsDir -Filter 'derpy.exe' -Recurse | Select-Object -First 1
+          if (-not `$exe) {
+            throw 'derpy.exe not found after package extraction.'
+          }
+          if (`$exe.DirectoryName -ne `$toolsDir) {
+            Move-Item -Path `$exe.FullName -Destination (Join-Path `$toolsDir 'derpy.exe') -Force
+          }
           Remove-Item `$zipPath -Force
           "@
           Set-Content -Path (Join-Path $toolsDir "chocolateyInstall.ps1") -Value $installScript
@@ -179,6 +186,9 @@ jobs:
         run: |
           $pkgRoot = "${{ steps.package.outputs.pkg_root }}"
           choco pack (Join-Path $pkgRoot "derpy.nuspec") --outputdirectory $pkgRoot
+          if ($LASTEXITCODE -ne 0) {
+            throw "choco pack failed."
+          }
 
       - name: Push Chocolatey package
         shell: pwsh
@@ -195,3 +205,6 @@ jobs:
             throw "Expected package not found: $pkgPath"
           }
           choco push $pkgPath --source https://push.chocolatey.org/ --api-key $env:CHOCOLATEY_API_KEY
+          if ($LASTEXITCODE -ne 0) {
+            throw "choco push failed."
+          }
