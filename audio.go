@@ -101,7 +101,7 @@ func (ap *AudioPlayer) LoadTrack(filePath string) error {
 	// Open the audio file
 	file, err := os.Open(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to open file: %w", err)
+		return fmt.Errorf("failed to open %s: %w", filePath, err)
 	}
 
 	ap.file = file
@@ -121,7 +121,7 @@ func (ap *AudioPlayer) LoadTrack(filePath string) error {
 
 	// Reset file pointer for audio decoding
 	if _, err := file.Seek(0, 0); err != nil {
-		return fmt.Errorf("failed to seek file: %w", err)
+		return fmt.Errorf("failed to seek %s: %w", filePath, err)
 	}
 
 	// Decode based on file extension
@@ -144,7 +144,7 @@ func (ap *AudioPlayer) LoadTrack(filePath string) error {
 
 	if err != nil {
 		file.Close()
-		return fmt.Errorf("failed to decode audio: %w", err)
+		return fmt.Errorf("failed to decode %s: %w", filePath, err)
 	}
 
 	ap.streamer = streamer
