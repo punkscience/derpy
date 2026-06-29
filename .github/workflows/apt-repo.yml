@@ -110,7 +110,7 @@ jobs:
             echo "     https://github.com/punkscience/derpy/settings/secrets/actions"
             echo ""
             echo "  4. Export the public key and commit it to gh-pages:"
-            echo "     gpg --armor --export derpy-packaging@punkscience.ca > apt/derpy-archive-keyring.gpg"
+            echo "     gpg --export derpy-packaging@punkscience.ca > apt/derpy-archive-keyring.gpg"
             exit 1
           fi
 
@@ -118,7 +118,7 @@ jobs:
           echo "$APT_SIGNING_KEY" | gpg --batch --import
 
           mkdir -p apt
-          gpg --armor --export derpy-packaging@punkscience.ca > apt/derpy-archive-keyring.gpg
+          gpg --export derpy-packaging@punkscience.ca > apt/derpy-archive-keyring.gpg
 
           cd apt/dists/stable
           gpg --batch --yes --default-key derpy-packaging@punkscience.ca --clearsign -o InRelease Release
