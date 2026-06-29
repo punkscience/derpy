@@ -58,10 +58,11 @@ install_linux() {
 
     echo -e "${BOLD}📦 derpy installer — Linux (APT)${NC}"
 
-    # 1. Install GPG signing key
+    # 1. Install GPG signing key (dearmor from ASCII-armored to binary
+    #    format required by apt's [signed-by=...] directive)
     echo "  → Installing derpy APT signing key…"
     curl -fsSL https://punkscience.github.io/derpy/apt/derpy-archive-keyring.gpg \
-        -o /usr/share/keyrings/derpy-archive-keyring.gpg
+        | gpg --dearmor --yes -o /usr/share/keyrings/derpy-archive-keyring.gpg
 
     # 2. Add apt source
     echo "  → Adding derpy APT source…"
