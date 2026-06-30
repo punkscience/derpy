@@ -15,10 +15,30 @@ import (
 
 const bskyPDS = "https://bsky.social"
 
+// normalizeBlueskyHandle strips @ prefix, trims whitespace, removes
+// non-printable characters, and appends ".bsky.social" to bare usernames
+// (strings with no dot and no @).
+func normalizeBlueskyHandle(raw string) string {
+	handle := strings.TrimSpace(raw)
+	handle = strings.TrimPrefix(handle, "@")
+	handle = strings.Map(func(r rune) rune {
+		if unicode.IsPrint(r) {
+			return r
+		}
+		return -1
+	}, handle)
+	if handle != "" && !strings.Contains(handle, ".") && !strings.Contains(handle, "@") {
+		handle += ".bsky.social"
+	}
+	return handle
+}
+
 // createBskySession authenticates with the PDS and returns a client bearing the
-// session JWT and DID for subsequent calls. The Identifier field accepts a
-// handle directly — ServerCreateSession resolves it internally.
+// session JWT and DID for subsequent calls. handle is normalized via
+// normalizeBlueskyHandle before being passed to ServerCreateSession.
 func createBskySession(ctx context.Context, handle, appPassword string) (*xrpc.Client, error) {
+	handle = normalizeBlueskyHandle(handle)
+
 	client := &xrpc.Client{Host: bskyPDS}
 	auth, err := atproto.ServerCreateSession(ctx, client, &atproto.ServerCreateSession_Input{
 		Identifier: handle,
@@ -153,14 +173,6 @@ func bytesIndex(haystack, needle []byte) int {
 // appPassword is an app-specific password. link is a pre-resolved listen link
 // (may be empty).
 func PublishBskyPost(handle, appPassword, artist, title, link string) error {
-	// Normalize whitespace from copy-paste.
-	handle = strings.TrimSpace(handle)
-	handle = strings.Map(func(r rune) rune {
-		if unicode.IsPrint(r) {
-			return r
-		}
-		return -1
-	}, handle)
 	appPassword = strings.TrimSpace(appPassword)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
