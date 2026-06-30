@@ -146,6 +146,7 @@ Matching is case-insensitive against the full file path.`,
 	cmd.AddCommand(versionCmd())
 	cmd.AddCommand(tokenCmd())
 	cmd.AddCommand(nostrKeyCmd())
+	cmd.AddCommand(blueskyKeyCmd())
 	cmd.AddCommand(listCmd())
 	cmd.AddCommand(relayCmd())
 	cmd.AddCommand(blossomCmd())
@@ -255,6 +256,58 @@ Pass an empty string to clear the saved key:
 			path, _ := configFilePath()
 			fmt.Printf("Nostr private key saved to %s\n", path)
 			fmt.Println("Press [E] in derpy to earmark the current track on Nostr.")
+			return nil
+		},
+	}
+}
+
+// blueskyKeyCmd returns the 'bluesky-key' subcommand that stores Bluesky
+// credentials (handle + app-specific password) in the config file.
+func blueskyKeyCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "bluesky-key <handle> <app-password>",
+		Short: "Save Bluesky credentials to the config file",
+		Long: `Save your Bluesky handle and app-specific password to ~/.config/derpy/config.json.
+
+Credentials are used to post about the current track when you press [P] in the
+TUI. Create an app password in Bluesky Settings → Privacy and Security → App
+Passwords.
+
+Pass empty strings to clear the saved credentials:
+
+  derpy bluesky-key "" ""`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			handle := args[0]
+			appPassword := args[1]
+
+			cfg, err := LoadConfig()
+			if err != nil {
+				cfg = &Config{}
+			}
+
+			if handle == "" && appPassword == "" {
+				cfg.BlueskyHandle = ""
+				cfg.BlueskyAppPassword = ""
+				if err := SaveConfig(cfg); err != nil {
+					return fmt.Errorf("could not save config: %w", err)
+				}
+				fmt.Println("Bluesky credentials cleared.")
+				return nil
+			}
+
+			if handle == "" || appPassword == "" {
+				return fmt.Errorf("both handle and app-password are required (or both empty to clear)")
+			}
+
+			cfg.BlueskyHandle = handle
+			cfg.BlueskyAppPassword = appPassword
+			if err := SaveConfig(cfg); err != nil {
+				return fmt.Errorf("could not save config: %w", err)
+			}
+			path, _ := configFilePath()
+			fmt.Printf("Bluesky credentials saved to %s\n", path)
+			fmt.Println("Press [P] in derpy to post the current track to Bluesky.")
 			return nil
 		},
 	}

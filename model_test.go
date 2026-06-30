@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -335,7 +336,7 @@ func TestRenderControls(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := renderControls(tt.hasKey)
+			got := renderControls(tt.hasKey, false)
 			if tt.want != "" && !strings.Contains(got, tt.want) {
 				t.Errorf("renderControls(%v) missing %q: %q", tt.hasKey, tt.want, got)
 			}
@@ -346,10 +347,10 @@ func TestRenderControls(t *testing.T) {
 	}
 }
 
-// TestViewControlsHideWhenNoKey verifies that renderControls(false) omits
-// [E] and [P] while preserving all other controls.
+// TestViewControlsHideWhenNoKey verifies that renderControls(false, false)
+// omits [E] and [P] while preserving all other controls.
 func TestViewControlsHideWhenNoKey(t *testing.T) {
-	got := renderControls(false)
+	got := renderControls(false, false)
 
 	if strings.Contains(got, "e earmark") || strings.Contains(got, "p post") {
 		t.Errorf("renderControls(false) should not contain [E]/[P]: %q", got)
@@ -377,5 +378,75 @@ func TestTrackLoadedMsgEmptyTagsOK(t *testing.T) {
 	}
 	if m.currentTags != nil {
 		t.Errorf("currentTags = %v, want nil (untagged tracks should not carry stale Tags)", m.currentTags)
+	}
+}
+
+// TestRenderSocialStatus verifies the combined post-status messages.
+func TestRenderSocialStatus(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  socialPublishMsg
+		want string
+	}{
+		{
+			name: "both succeed",
+			msg:  socialPublishMsg{nostrOK: true, bskyOK: true},
+			want: "Posted to Bluesky + Nostr!",
+		},
+		{
+			name: "nostr only succeeds",
+			msg:  socialPublishMsg{nostrOK: true},
+			want: "Nostr: posted!",
+		},
+		{
+			name: "bsky only succeeds",
+			msg:  socialPublishMsg{bskyOK: true},
+			want: "Bluesky: posted!",
+		},
+		{
+			name: "nostr fails bsky succeeds",
+			msg: socialPublishMsg{
+				nostrErr: fmt.Errorf("timeout"),
+				bskyOK:   true,
+			},
+			want: "Nostr: failed — timeout  Bluesky: posted!",
+		},
+		{
+			name: "neither attempted",
+			msg:  socialPublishMsg{},
+			want: "Post: nothing to do",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := renderSocialStatus(tt.msg)
+			if got != tt.want {
+				t.Errorf("renderSocialStatus() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestRenderControlsDualPlatform verifies controls display with Bluesky-only.
+func TestRenderControlsDualPlatform(t *testing.T) {
+	// Bluesky-only: shows [P] but not [E].
+	got := renderControls(false, true)
+	if !strings.Contains(got, "p post") {
+		t.Errorf("renderControls(false, true) should contain [P]: %q", got)
+	}
+	if strings.Contains(got, "e earmark") {
+		t.Errorf("renderControls(false, true) should not contain [E]: %q", got)
+	}
+
+	// Both: shows both [E] and [P].
+	got = renderControls(true, true)
+	if !strings.Contains(got, "e earmark") || !strings.Contains(got, "p post") {
+		t.Errorf("renderControls(true, true) should contain [E] and [P]: %q", got)
+	}
+
+	// Neither: hides both.
+	got = renderControls(false, false)
+	if strings.Contains(got, "e earmark") || strings.Contains(got, "p post") {
+		t.Errorf("renderControls(false, false) should hide [E]/[P]: %q", got)
 	}
 }

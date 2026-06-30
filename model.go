@@ -103,6 +103,15 @@ type nostrPublishedMsg struct {
 	duplicate bool   // true when the track was already earmarked
 }
 
+// socialPublishMsg combines the results of a dual-post to Nostr and Bluesky.
+// It is sent by publishToSocial after both platform calls complete.
+type socialPublishMsg struct {
+	nostrErr error // nil when Nostr succeeded or wasn't attempted
+	bskyErr  error // nil when Bluesky succeeded or wasn't attempted
+	nostrOK  bool  // true if Nostr was configured and succeeded
+	bskyOK   bool  // true if Bluesky was configured and succeeded
+}
+
 // queueFlushedMsg is sent after a background queue-flush attempt completes.
 type queueFlushedMsg struct {
 	count int // number of earmarks successfully published from the queue
@@ -290,18 +299,22 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "p":
-			// Publish the current track as a public Nostr post with listen links.
+			// Publish the current track as a public post. When both Nostr
+			// and Bluesky are configured, both are fired in parallel.
 			if m.playing {
 				hexKey := resolveNostrKey()
-				if hexKey == "" {
+				bskyHandle, bskyPassword := resolveBskyConfig()
+
+				if hexKey == "" && bskyHandle == "" {
+					// Neither platform configured — inline Nostr key entry.
 					m.nostrKeyEntry = true
 					m.nostrKeyBuffer = ""
 					m.nostrKeyForPost = true
 					m.nostrStatus = ""
 					return m, nil
 				}
-				m.nostrStatus = "Nostr: searching for links and posting..."
-				return m, m.publishToNostr(hexKey)
+				m.nostrStatus = "Posting..."
+				return m, m.publishToSocial(hexKey, bskyHandle, bskyPassword, m.artist, m.title, m.album)
 			}
 
 		case "d":
@@ -478,6 +491,10 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case socialPublishMsg:
+		m.nostrStatus = renderSocialStatus(msg)
+		return m, nil
+
 	case queueFlushedMsg:
 		if msg.count > 0 {
 			m.nostrStatus = fmt.Sprintf("Nostr: synced %d queued earmark(s)", msg.count)
@@ -624,8 +641,10 @@ func (m *PlayerModel) View() string {
 		content.WriteString("\n")
 	}
 
-	// Controls — hide [E] and [P] when no Nostr key is available from any source.
-	controls := renderControls(resolveNostrKey() != "")
+	// Controls — hide [E] when no Nostr key, hide [P] when no platform is configured.
+	nostrKey := resolveNostrKey()
+	bskyHandle, _ := resolveBskyConfig()
+	controls := renderControls(nostrKey != "", bskyHandle != "")
 	content.WriteString(psControls.Render(controls))
 
 	return m.composeWithTagColumn(content.String())
@@ -686,9 +705,17 @@ func truncateTag(s string, width int) string {
 // renderProgressBar renders a progress bar
 // renderControls returns the controls hint string, omitting [E] and [P] when
 // no Nostr key is available from any source (env, config, or inline).
-func renderControls(hasKey bool) string {
-	if hasKey {
+// [P] is shown when either Nostr or Bluesky is configured.
+func renderControls(hasNostr bool, hasBluesky bool) string {
+	if hasNostr && hasBluesky {
 		return "← prev  → next  space pause  e earmark  p post  t tag  d delete  esc quit"
+	}
+	if hasNostr || hasBluesky {
+		// At least one platform available for posting.
+		if hasNostr {
+			return "← prev  → next  space pause  e earmark  p post  t tag  d delete  esc quit"
+		}
+		return "← prev  → next  space pause  p post  t tag  d delete  esc quit"
 	}
 	return "← prev  → next  space pause  t tag  d delete  esc quit"
 }
@@ -801,6 +828,74 @@ func (m *PlayerModel) publishToNostr(hexKey string) tea.Cmd {
 		err := PublishNostrTrackNote(hexKey, artist, title, album)
 		return nostrPublishedMsg{action: "post", err: err}
 	}
+}
+
+// publishToSocial fires Nostr and Bluesky post attempts in parallel, collecting
+// results into a single socialPublishMsg. Each platform is skipped when its
+// credentials are empty (corresponding *_OK fields will be false). The listen
+// link search is done once and shared, saving a duplicate HTTP round-trip.
+func (m *PlayerModel) publishToSocial(hexKey, bskyHandle, bskyPassword, artist, title, album string) tea.Cmd {
+	return func() tea.Msg {
+		// Search for a listen link once — shared between platforms.
+		link := FindBestLink(artist, title, album)
+
+		result := socialPublishMsg{}
+
+		// Run both platforms in parallel when configured.
+		done := make(chan struct{}, 2)
+
+		if hexKey != "" {
+			go func() {
+				result.nostrErr = PublishNostrTrackNote(hexKey, artist, title, album)
+				result.nostrOK = result.nostrErr == nil
+				done <- struct{}{}
+			}()
+		} else {
+			done <- struct{}{}
+		}
+
+		if bskyHandle != "" {
+			go func() {
+				result.bskyErr = PublishBskyPost(bskyHandle, bskyPassword, artist, title, link)
+				result.bskyOK = result.bskyErr == nil
+				done <- struct{}{}
+			}()
+		} else {
+			done <- struct{}{}
+		}
+
+		// Wait for both goroutines to finish.
+		<-done
+		<-done
+
+		return result
+	}
+}
+
+// renderSocialStatus builds the status-line text from a socialPublishMsg.
+func renderSocialStatus(msg socialPublishMsg) string {
+	var parts []string
+
+	switch {
+	case msg.nostrOK && msg.bskyOK:
+		return "Posted to Bluesky + Nostr!"
+	case msg.nostrOK:
+		parts = append(parts, "Nostr: posted!")
+	case msg.nostrErr != nil:
+		parts = append(parts, fmt.Sprintf("Nostr: failed — %v", msg.nostrErr))
+	}
+
+	switch {
+	case msg.bskyOK:
+		parts = append(parts, "Bluesky: posted!")
+	case msg.bskyErr != nil:
+		parts = append(parts, fmt.Sprintf("Bluesky: failed — %v", msg.bskyErr))
+	}
+
+	if len(parts) == 0 {
+		return "Post: nothing to do"
+	}
+	return strings.Join(parts, "  ")
 }
 
 // saveEarmarkCmd returns a Bubble Tea command that earmarks the current track.

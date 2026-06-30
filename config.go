@@ -33,6 +33,10 @@ type Config struct {
 	// The file is written with 0o600 permissions, but users should still treat
 	// this value as a secret and never share the config file.
 	NostrPrivateKey string `json:"nostr_private_key,omitempty"`
+	// BlueskyHandle is the user's Bluesky handle (e.g. "user.bsky.social").
+	BlueskyHandle string `json:"bluesky_handle,omitempty"`
+	// BlueskyAppPassword is an app-specific password created in Bluesky Settings.
+	BlueskyAppPassword string `json:"bluesky_app_password,omitempty"`
 	// NostrRelays is the list of relay WebSocket URLs derpy publishes to and
 	// fetches from. When empty, defaultNostrRelays in nostr.go is used.
 	NostrRelays []string `json:"nostr_relays,omitempty"`
@@ -100,4 +104,25 @@ func LoadListenBrainzToken() string {
 		return cfg.ListenBrainzToken
 	}
 	return os.Getenv("LISTENBRAINZ_TOKEN")
+}
+
+// resolveBskyConfig returns the user's Bluesky handle and app password
+// following the resolution order: DERPY_BSKY_HANDLE / DERPY_BSKY_APP_PASSWORD
+// env vars → config file → empty strings.
+func resolveBskyConfig() (handle, appPassword string) {
+	handle = os.Getenv("DERPY_BSKY_HANDLE")
+	appPassword = os.Getenv("DERPY_BSKY_APP_PASSWORD")
+	if handle != "" && appPassword != "" {
+		return
+	}
+	cfg, err := LoadConfig()
+	if err == nil {
+		if handle == "" {
+			handle = cfg.BlueskyHandle
+		}
+		if appPassword == "" {
+			appPassword = cfg.BlueskyAppPassword
+		}
+	}
+	return
 }
