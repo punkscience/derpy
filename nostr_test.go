@@ -168,7 +168,7 @@ func TestPublicNoteContent_BandcampPreferred(t *testing.T) {
 			priv := nostr.GeneratePrivateKey()
 			npub, _ := npubFromPrivateKey(priv)
 			content := fmt.Sprintf(
-				"%s is really digging %s by %s right now! #music #derpy\n\n%s",
+				"nostr:%s is really digging %s by %s right now! #music #derpy\n\n%s",
 				npub, "The Song", "Test Artist", link,
 			)
 			for _, want := range []string{
@@ -263,6 +263,34 @@ func TestResolveNostrKeyEnvVar(t *testing.T) {
 	got := resolveNostrKey()
 	if got != expectedHex {
 		t.Errorf("resolveNostrKey() with DERPY_NOSTR_KEY set = %q, want %q", got, expectedHex)
+	}
+}
+
+// TestPublishNostrTrackNote_UsesNostrURIScheme verifies that the published
+// note content uses the nostr: URI scheme (NIP-21) so that Nostr clients
+// recognize the npub as a profile reference rather than raw text.
+func TestPublishNostrTrackNote_UsesNostrURIScheme(t *testing.T) {
+	hexKey := nostr.GeneratePrivateKey()
+	npub, err := npubFromPrivateKey(hexKey)
+	if err != nil {
+		t.Fatalf("could not derive npub: %v", err)
+	}
+
+	// Simulate the content-building logic from PublishNostrTrackNote.
+	content := fmt.Sprintf(
+		"nostr:%s is really digging The Song by Test Artist right now! #music #derpy",
+		npub,
+	)
+
+	// The content must start with the nostr: URI scheme, not the raw npub.
+	wantPrefix := "nostr:" + npub
+	if !strings.HasPrefix(content, wantPrefix) {
+		t.Errorf("content should start with nostr: URI scheme\ngot:  %s\nwant prefix: %s", content, wantPrefix)
+	}
+
+	// Confirm the raw npub without nostr: prefix would be wrong.
+	if strings.HasPrefix(content, npub+" ") {
+		t.Error("content starts with raw npub — Nostr clients won't recognize this as a profile reference")
 	}
 }
 

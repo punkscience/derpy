@@ -239,8 +239,10 @@ func PublishNostrTrackNote(privateKey, artist, title, album string) error {
 		digging = "this track"
 	}
 
+	// NIP-21 nostr: URI scheme so Nostr clients render the npub as a
+	// clickable profile reference instead of raw text.
 	content := fmt.Sprintf(
-		"%s is really digging %s right now! #music #derpy%s",
+		"nostr:%s is really digging %s right now! #music #derpy%s",
 		npub,
 		digging,
 		linkSection,
