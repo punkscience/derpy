@@ -1,0 +1,1 @@
+{"nodes": [{"id": "c_users_darry_projects_derpy_chocolatey_tools_chocolateyinstall_ps1", "label": "chocolateyInstall.ps1", "file_type": "code", "source_file": "chocolatey/tools/chocolateyInstall.ps1", "source_location": "L1"}], "edges": [], "raw_calls": []}
