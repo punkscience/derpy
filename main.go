@@ -898,7 +898,7 @@ Requires a Nostr private key saved via 'derpy nostr-key <key>'.`,
 					go func() {
 						dlCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 						defer cancel()
-						path, err := DownloadAndReassemble(dlCtx, w.earmark.Blossom, nil)
+						path, err := DownloadAndReassemble(dlCtx, w.earmark.Blossom, hexKey, nil)
 						results <- dlResult{w.idx, path, err}
 					}()
 				}

@@ -192,7 +192,7 @@ func TestUploadDownloadChunk(t *testing.T) {
 	}
 
 	// Download and verify
-	got, err := downloadChunk(context.Background(), srv.URL, sum)
+	got, err := downloadChunk(context.Background(), srv.URL, sum, privKey)
 	if err != nil {
 		t.Fatalf("downloadChunk: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestUploadFileAndReassemble(t *testing.T) {
 	}
 
 	// Reassemble.
-	destPath, err := DownloadAndReassemble(context.Background(), manifest, nil)
+	destPath, err := DownloadAndReassemble(context.Background(), manifest, privKey, nil)
 	if err != nil {
 		t.Fatalf("DownloadAndReassemble: %v", err)
 	}
@@ -306,7 +306,8 @@ func TestDownloadChunkSHA256Mismatch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := downloadChunk(context.Background(), srv.URL, "aaaa"+strings.Repeat("0", 60))
+	privKey := nostr.GeneratePrivateKey()
+	_, err := downloadChunk(context.Background(), srv.URL, "aaaa"+strings.Repeat("0", 60), privKey)
 	if err == nil {
 		t.Error("expected SHA-256 mismatch error, got nil")
 	}
