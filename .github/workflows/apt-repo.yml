@@ -1,6 +1,14 @@
 name: APT Repository
 
 on:
+  # Fires when the Release workflow finishes. goreleaser publishes the
+  # release with GITHUB_TOKEN, so the `release: published` event never
+  # triggers downstream workflows — workflow_run is the signal that does.
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  # Retained for manually-published GitHub releases (created by a user, not
+  # GITHUB_TOKEN, so this path does fire) and as a re-run fallback.
   release:
     types: [published]
   workflow_dispatch:
@@ -15,6 +23,10 @@ permissions:
 
 jobs:
   apt-repo:
+    # Skip when the Release run failed; always run for manual/release paths.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout gh-pages
@@ -31,7 +43,10 @@ jobs:
       - name: Determine release tag
         id: tag
         run: |
-          if [ -n "${{ github.event.release.tag_name }}" ]; then
+          # workflow_run from a tag push exposes the tag as head_branch.
+          if [ -n "${{ github.event.workflow_run.head_branch }}" ]; then
+            echo "tag=${{ github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.release.tag_name }}" ]; then
             echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
           else
             echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
