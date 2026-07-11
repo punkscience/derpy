@@ -5,24 +5,24 @@ Codename: stable
 Architectures: amd64 arm64
 Components: main
 Description: APT repository for derpy - terminal music player
-Date: Sat, 11 Jul 2026 13:20:20 UTC
+Date: Sat, 11 Jul 2026 13:46:29 UTC
 MD5Sum:
  21c6c694ffa838fbd72325728ff4d0d8        506 main/binary-amd64/Packages
- 324a4b8db818b22ccfde7d70a041a044        396 main/binary-amd64/Packages.gz
+ 26bab15f7bcd2bc99c29d23348c73b14        396 main/binary-amd64/Packages.gz
  bc31a6395eff02297858d877f98f0285        506 main/binary-arm64/Packages
- 462b3580d4ed8682e77e0f8a571763ba        398 main/binary-arm64/Packages.gz
+ 7b72b02a8b4ae0cd8cc79f309370a017        398 main/binary-arm64/Packages.gz
 SHA1:
  ac8b76be187ec0b184dfe99b10bb771d0f054b24        506 main/binary-amd64/Packages
- 1492d282e837086ccd869942ee353d283ce3f666        396 main/binary-amd64/Packages.gz
+ ae9af30ec920a0989fddb877d6773a05bbbd2ba2        396 main/binary-amd64/Packages.gz
  3f491c3ab7a95fb7f7e82e6c70e2fa4c7d6d643b        506 main/binary-arm64/Packages
- 3f39d19a7c0d5c5f3d9e774fa4e53dd285eda8b7        398 main/binary-arm64/Packages.gz
+ 6b4f4d4a9da8ab63c3edf4b4aa71fb42c772ba49        398 main/binary-arm64/Packages.gz
 SHA256:
  983289ec01363c3d02b11bf4a5ba93a59ac024f0676eb6b3d2c18b1e13f0d6cb        506 main/binary-amd64/Packages
- 6eb03993c56e112173ebcd12cc642c23d8e81b8c3005c45ce0755c8d33b597d4        396 main/binary-amd64/Packages.gz
+ e4cf9068972af4e841e3bf837f6dca380a0fbc3169886ee389ad92f6c39f585f        396 main/binary-amd64/Packages.gz
  5cf4c601d9fe613c752072cd59cde06b27d7ab34f484cb61713bef307a0c709f        506 main/binary-arm64/Packages
- d7f44c27032b4ecd0f23c63266365862d45d151365f16bf660a32e48833b8cdf        398 main/binary-arm64/Packages.gz
+ 38cb610deac7c348eb012b72f54c318cdc12de28ce8a9d63e6235595b7658f09        398 main/binary-arm64/Packages.gz
 SHA512:
  4b24db954a22a118064000e5b3591af24401ba17624ca43929cbd89bd0cf4d6517ea6ed2ab6a9b3728f7d95332c8eb9cc734e565ede72fbc3c7d0d7a9bfb2453        506 main/binary-amd64/Packages
- 4728fc98ee7131adf51ca33167f1eb294371e7d45db9e2ae1c17f2b9a9235964cbfa3991ed428c9f2f05e701ee482afed9c4be57a5a90fda22b1afb5fd79e746        396 main/binary-amd64/Packages.gz
+ e1e2b4068f15a500df3086929db76094175ff9f55dd2af57eb98ce180b8276c8e8bcc02e74de6ca0ebc8176d0cc18514cf2374a792820ac476b54bf7c1feff24        396 main/binary-amd64/Packages.gz
  a630f4955bbb3dbdcb75c8153df6d79966a75f655407fa9407cf26e26e04e73dcfa750fe07ba255e368ce456af54686a45ec35a703cdf1fbc990f5e82ca4a4ff        506 main/binary-arm64/Packages
- 01c190d9cb9f2ee9f8c3b213893692d5126604a71b8dd803c47bfd7651a8c180276fbfc8cb8d0eb23880b551dbc346f4af3f8f0fd7b8683e8715688c6aa40b1d        398 main/binary-arm64/Packages.gz
+ 28af056cf221e2c5b0d1e4fff44ed10ee4edfa3579515b5f0775ccf8b9e1f2ff862ea87e2f43d1d52533e184f380b178fcc440e5a472571bb120c7b8ebae7acf        398 main/binary-arm64/Packages.gz
