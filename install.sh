@@ -66,7 +66,7 @@ install_linux() {
     # 2. Add apt source
     echo "  → Adding derpy APT source…"
     cat > /etc/apt/sources.list.d/derpy.list <<'SOURCELIST'
-deb [signed-by=/usr/share/keyrings/derpy-archive-keyring.gpg] https://punkscience.github.io/derpy/apt/ stable main
+deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/derpy-archive-keyring.gpg] https://punkscience.github.io/derpy/apt/ stable main
 SOURCELIST
 
     # 3. Update and install
