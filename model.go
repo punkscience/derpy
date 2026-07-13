@@ -799,14 +799,15 @@ func (m *PlayerModel) loadCurrentTrack() tea.Cmd {
 			tags = m.tagIndex.Get(sum)
 		}
 
-		// Load the track
+		// Load the track. Include the track path so a fatal decode/load
+		// error tells the user which file was playing when it crashed.
 		if err := m.player.LoadTrack(track); err != nil {
-			return playErrorMsg(fmt.Errorf("failed to load track: %w", err))
+			return playErrorMsg(fmt.Errorf("failed to load track %q: %w", track, err))
 		}
 
 		// Start playing
 		if err := m.player.Play(); err != nil {
-			return playErrorMsg(fmt.Errorf("failed to play track: %w", err))
+			return playErrorMsg(fmt.Errorf("failed to play track %q: %w", track, err))
 		}
 
 		return trackLoadedMsg{

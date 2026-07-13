@@ -99,7 +99,10 @@
       "PowerShell(Get-ExecutionPolicy *)",
       "PowerShell(powershell.exe -NoProfile -Command \"Get-ExecutionPolicy -List\")",
       "PowerShell(powershell.exe -NoProfile -Command \"Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force; Get-ExecutionPolicy -List\")",
-      "PowerShell($env:PSExecutionPolicyPreference = $null; powershell.exe -NoProfile -Command \"Get-ExecutionPolicy; pi --version\")"
+      "PowerShell($env:PSExecutionPolicyPreference = $null; powershell.exe -NoProfile -Command \"Get-ExecutionPolicy; pi --version\")",
+      "mcp__codebase-memory-mcp__list_projects",
+      "mcp__codebase-memory-mcp__index_repository",
+      "mcp__codebase-memory-mcp__search_code"
     ]
   }
 }
