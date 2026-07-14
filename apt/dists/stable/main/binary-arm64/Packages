@@ -1,13 +1,13 @@
 Package: derpy
-Version: 1.0.5
+Version: 1.0.6
 Architecture: arm64
 Maintainer: Darryl Wright <darryl@punkscience.ca>
 Installed-Size: 15168
-Filename: pool/main/derpy_1.0.5_arm64.deb
-Size: 5966538
-MD5sum: bfdab2e6fa0790081b627409b895183f
-SHA1: ec5c8d07b372885181bf9a0feb2dc2978be07561
-SHA256: cef40e7a6f9f572733df826e45a381c9b2248e4d4bb4d8d30ff0dddc424f69da
+Filename: pool/main/derpy_1.0.6_arm64.deb
+Size: 5966820
+MD5sum: 80f2ba2b43167319610cf190b6376acb
+SHA1: 126fe0c6a0990ff440f8cfe7baf4aa11d998d065
+SHA256: bc06c643b7608fa22d09fe63d74b93fcecf553c7aa6e054001e17d201bae0105
 Section: sound
 Priority: optional
 Homepage: https://github.com/punkscience/derpy

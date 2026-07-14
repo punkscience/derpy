@@ -8,41 +8,41 @@ Codename: stable
 Architectures: amd64 arm64
 Components: main
 Description: APT repository for derpy - terminal music player
-Date: Sat, 11 Jul 2026 13:46:59 UTC
+Date: Tue, 14 Jul 2026 17:29:15 UTC
 MD5Sum:
- 21c6c694ffa838fbd72325728ff4d0d8        506 main/binary-amd64/Packages
- bf6153da5c816849fdb6ff308111c3c9        396 main/binary-amd64/Packages.gz
- bc31a6395eff02297858d877f98f0285        506 main/binary-arm64/Packages
- 2857f69d32a4dd14c57f961a3a6ea7a4        398 main/binary-arm64/Packages.gz
+ 282b645a10dfcd4580714e7fba6bc83d        506 main/binary-amd64/Packages
+ f4a3294f65413eee29b3e376755ed2ee        395 main/binary-amd64/Packages.gz
+ 7866df4ae17f07bb1b17cac8b6513eeb        506 main/binary-arm64/Packages
+ f8af8f9675ffc7ebd80b44e752bfeb29        395 main/binary-arm64/Packages.gz
 SHA1:
- ac8b76be187ec0b184dfe99b10bb771d0f054b24        506 main/binary-amd64/Packages
- 22545e7b69385a933e75fabdc0090fea596dd387        396 main/binary-amd64/Packages.gz
- 3f491c3ab7a95fb7f7e82e6c70e2fa4c7d6d643b        506 main/binary-arm64/Packages
- 6cffbf79daece3845f3137c1d2ac2bd394cc44b8        398 main/binary-arm64/Packages.gz
+ cd8def244582b53673ee1477527a5dea55063217        506 main/binary-amd64/Packages
+ 0883ae664b366a76d256ad8b4d302451f417d6a0        395 main/binary-amd64/Packages.gz
+ 1895204a121ebb8db177a2b94b92ca2d3f91a9ec        506 main/binary-arm64/Packages
+ bb3a422366369a4ac5754df8310d78dd198af3bd        395 main/binary-arm64/Packages.gz
 SHA256:
- 983289ec01363c3d02b11bf4a5ba93a59ac024f0676eb6b3d2c18b1e13f0d6cb        506 main/binary-amd64/Packages
- e99807d447fb756f6a777f32861fbc534230feda94cb626fefad07ae9f0e1192        396 main/binary-amd64/Packages.gz
- 5cf4c601d9fe613c752072cd59cde06b27d7ab34f484cb61713bef307a0c709f        506 main/binary-arm64/Packages
- 9e315e134687bfa08de861465d02c439e5b42f4c791a3d9cb71808ba41589fe2        398 main/binary-arm64/Packages.gz
+ 88a9e1cc5e84bfdff4cae3b6372c76856753d58668817a80128d099a09b22496        506 main/binary-amd64/Packages
+ f9825dda39af84a29f056b74b5734904e8fadac2adb0ad6021342d07f9e6f02d        395 main/binary-amd64/Packages.gz
+ f4f4cbfd7084c7bba113fdbc986895db42888db62202bc2654bc187e2e5c1256        506 main/binary-arm64/Packages
+ 3ccc13288359e89e33d06f82b3a14e91b3782ccda3c81bf80c79f42e931679a2        395 main/binary-arm64/Packages.gz
 SHA512:
- 4b24db954a22a118064000e5b3591af24401ba17624ca43929cbd89bd0cf4d6517ea6ed2ab6a9b3728f7d95332c8eb9cc734e565ede72fbc3c7d0d7a9bfb2453        506 main/binary-amd64/Packages
- 0145f80d7367d2db3ae624895b0e72dc92e3dae9fe016589e3390171400df57eda3d05ab2cfb655c8d89b7d79edc1f162a7c9adbaac916bb10a76eeee7c92363        396 main/binary-amd64/Packages.gz
- a630f4955bbb3dbdcb75c8153df6d79966a75f655407fa9407cf26e26e04e73dcfa750fe07ba255e368ce456af54686a45ec35a703cdf1fbc990f5e82ca4a4ff        506 main/binary-arm64/Packages
- 798d9d209db614ced0d81d29b74698bd993d0c7a8b63d4740d97ca564335e6dd341e8c5d2f23a9be7859fa4eb9c1aad69a5461c031e0469c685d07e3bcc61e56        398 main/binary-arm64/Packages.gz
+ 94c008cdc7d32be18f5825d83230e0838ea555cd76f5fab1ef18158512738d650f32a14969f63a166eb85452f87c6fd6aa4a014dc2818e74c23f2c3184aca40f        506 main/binary-amd64/Packages
+ d860f7bcc293b04b3f58df22a736db142716a5fc3ac6b1e88ed87878bb615260777b087a556bff5125136f0d4539f38ba0904eeb68d6c92ccdcfbdebba372aca        395 main/binary-amd64/Packages.gz
+ 88e097e8eb85018c6dfaecff3ae1345d6accddbe7795eb30775e3bcdaeb3c914931769d31990d220b3ec91f05051defc29c6dc002ebf9d7afdcd4f581d15f47d        506 main/binary-arm64/Packages
+ 6c678982b1e86b436800ccf19f97e1e8fb41888d20945f1ff1b63623139dfebccb7d3b2031b4078d7773228a53006ffcc754238535b04b1d201ad90bd4f7f52f        395 main/binary-arm64/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iQJTBAEBCgA9FiEENI9NmjLder6CyEJm3fWxvMEt35IFAmpSSVMfHGRlcnB5LXBh
-Y2thZ2luZ0BwdW5rc2NpZW5jZS5jYQAKCRDd9bG8wS3fkj7ND/4vVNIGDGrFGCxt
-FrL3MGrXJErDhUCtT3/oQB+jPyxBZDvuvCsXR3knP61iowGPIr4je2u3P3zbO51F
-3B8DDORaBe3OBiA3l7+gBLtKsBkKeDbIsL75lUXDGHoyh79dDfpHu9PEGAus22jg
-DcHFWFEx7oujsLnKR/MPvnZ3wH6OMe7n/ax7Rxfp2zRW4zxDrFdaKcR9QuLW4HgN
-lSTKHJYXbkbwl+8uBmmWF+VijMI26kTvl+46e2Cyh3RHZxGjlhRHrSADlizkkdIm
-iS8XRM7DosuFN3tji0Ww41y+41auPMwjoGCqagErX+gELuWk8IUICfCHuF0iyqmW
-CBDXTIyKxo0NVHv1G3KKFGUCRLYV7xdoEaEeDnkWdM4d7fzz+msptUiKuYdx5PQR
-wm0/Qcr57fXh3674+88jV8dZRCp1MSlgFALD/X3zJ298igPrSZM1Sg/zVwSg8XML
-tsSXkOOXnOS6Ryih7/is9xv3c2lQDVMN3fRxWA9yAHs5jf6KLw8bWkBFYdi1KXmP
-Ynx6fYVmtym0xjw8kv07pOqrV6uMwoieWSCJo1sLTgb72c6sOB2Lu4ROskGw8XdI
-JlGUn03Z/ctRz4NhexyjhnKxkqFbNCCN+GOZxjbOR23EibSAWYB3dJpIFkHjwuUH
-AkiiSSjQxszh7EuipzH2uI7/lXfS6g==
-=umaF
+iQJTBAEBCgA9FiEENI9NmjLder6CyEJm3fWxvMEt35IFAmpWcewfHGRlcnB5LXBh
+Y2thZ2luZ0BwdW5rc2NpZW5jZS5jYQAKCRDd9bG8wS3fkt65D/0bGSZJk3QatSoF
+A0gbGngxObN4I97gEOR2TasyJWb9fdZc+vhXofTJcE87E/L1D/S285mGMPWfX/oy
+7OJwGumUCvef7tvp6+AWexyG6f+mjHYn9/dKSIhu3mGwaC3CYdoO7I+ekfXJk3Ws
+3M4820WYihx18X0MAecQA7cqLkq3oeIv/G9gKQ8AOoHlWVR2gA75Bk51EVn1cOSE
+QOM6q35sk0gTQjJ0r96FitfygWvdaTTcpgqMTN0I/G2GaKyt3wBMvowXssERCnbL
+nrhn5NKKqLbKcgODD13bPNxtG6sjJikzgRzJBjJP8R6eIP8fhS2HYjgnL+xar3X4
+DP3WJY50EvhOKdlIG0oOhpuWyttF+6cmI6nb1TeLGtYrARcYbi58dFyviEozfrDs
+6mDv4Sz1yalM6vmDFXJLMaXgqSMDZ+1qB4/6I8zPB2wFbDgXuO5bWCbf/qEqtAIO
+plkZAktQLP+NpzJRoDreHO5EeX5/ODhBPZ7gE8Rgf/Rr5gZj6k1HAItUUd2Mm8w7
+nGVzHOd6lt7tGAsLsybAt+IYYOKs2lqZ/o52vVngg1PhZGln/2/opvC9MGNCWyF0
+otEOlNcmBPhyWxz426HRsup/9ifrDvI9rLj0xrifyMN5L7xXe43x+X/bV8ujb/v6
+c8TOtCMxRZK+m6XLE2ocMKEiJJo8ow==
+=cM2G
 -----END PGP SIGNATURE-----
