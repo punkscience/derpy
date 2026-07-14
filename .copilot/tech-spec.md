@@ -127,5 +127,6 @@ limit. A typical FLAC is 40–100 MB. Files must be split before upload.
 [x] Keyword filtering with AND/OR/parentheses expression syntax (`derpy jazz AND piano`).
 [x] Default source directory saved via `derpy --set-default-source <dir>`.
 [x] MPRIS2 D-Bus service on Linux for playerctl/Waybar integration.
+[x] System Media Transport Controls (SMTC) on Windows — media overlay/lock-screen metadata, playback status, timeline, and Play/Pause/Next/Previous/Stop buttons.
 [x] [D] key deletes the current track from disk and advances to the next.
 

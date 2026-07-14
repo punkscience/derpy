@@ -26,6 +26,7 @@ go build -o derpy
 | `model.go` | Bubble Tea model — keyboard input, progress bar rendering, note-saving to `~/track-notes.md` |
 | `audio.go` | `AudioPlayer` — Beep-based decoding/playback, pause/resume, position tracking via `CompletionStreamer`. Uses `speaker.go` functions instead of `gopxl/beep/speaker`. |
 | `speaker.go` | Custom PulseAudio speaker backed by `jfreymuth/pulse` (pure Go, no ALSA headers). Exposes `speakerInit/Play/Clear/Lock/Unlock` used by `audio.go`. |
+| `mpris.go` / `mpris_windows.go` / `mpris_darwin.go` | OS media-control integration behind one `MPRISService` API (build-tagged per OS). Linux = MPRIS2 D-Bus (`mpris.go`); Windows = System Media Transport Controls via a WinRT MediaPlayer-owned SMTC (`mpris_windows.go`); macOS = no-op stub. `mpris_types.go` holds the platform-neutral `mprisXxxMsg` command messages consumed by `model.go`. |
 | `listenbrainz.go` | Optional scrobbling — submits "playing now" immediately, scrobbles at 25% completion (min 30s tracks) |
 | `shuffle.go` | Fisher-Yates shuffle seeded with current time |
 | `tags.go` | **Tag** index (`~/.config/derpy/tags.json`) + `NormalizeTags` (lowercase, `[a-z0-9 ]` only) + `filterPlaylistByTags` (the `--tags` CLI pre-filter) |
