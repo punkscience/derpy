@@ -6,14 +6,17 @@ require (
 	github.com/bluesky-social/indigo v0.0.0-20260629160527-dfe5578fd537
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/dece2183/media-winrt-go v0.0.0-20250304161442-46653f733234
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
 	github.com/ebitengine/oto/v3 v3.4.0
+	github.com/go-ole/go-ole v1.2.6
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/gopxl/beep v1.4.1
 	github.com/hirigaray/go-listenbrainz v0.0.0-20241208212301-5487bfa2a78c
 	github.com/jfreymuth/pulse v0.1.1
 	github.com/nbd-wtf/go-nostr v0.52.3
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/sys v0.36.0
 )
 
 require (
@@ -106,7 +109,6 @@ require (
 	golang.org/x/arch v0.15.0 // indirect
 	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
-	golang.org/x/sys v0.36.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
 	lukechampine.com/blake3 v1.2.1 // indirect
