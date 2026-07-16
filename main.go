@@ -363,10 +363,12 @@ func runNoTUI(playlist []string) error {
 
 		if err := player.LoadTrack(track); err != nil {
 			fmt.Fprintf(os.Stderr, "Error loading track %s: %v\n", track, err)
+			_ = logTrackError(fmt.Errorf("failed to load track %q: %w", track, err))
 			continue
 		}
 		if err := player.Play(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error playing track %s: %v\n", track, err)
+			_ = logTrackError(fmt.Errorf("failed to play track %q: %w", track, err))
 			continue
 		}
 
