@@ -64,6 +64,12 @@ type PlayerModel struct {
 	// spinnerFrame advances modulo 3 on each indexProgressMsg, driving the
 	// PS three-dot colour rotation (lime -> olive -> dark-olive).
 	spinnerFrame int
+
+	// loadFailures counts consecutive track load/play failures. It is reset
+	// to zero on every successful load. When it reaches the playlist length
+	// the whole playlist has failed in a row (e.g. the music drive was
+	// unmounted), which is treated as fatal rather than looping forever.
+	loadFailures int
 }
 
 // indexProgressMsg is sent by IndexSource (running in a background
@@ -450,6 +456,7 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadCurrentTrack()
 
 	case trackLoadedMsg:
+		m.loadFailures = 0 // A track loaded — reset the consecutive-failure guard.
 		m.playing = true
 		m.paused = false
 		m.position = 0
@@ -524,8 +531,29 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case playErrorMsg:
-		m.err = error(msg)
-		return m, nil
+		// A track failed to load or play. Rather than halting the whole
+		// session, record the failure to ~/derpy-errors.log and skip to the
+		// next track so playback continues. If the failures span the entire
+		// playlist without a single success in between (e.g. the music drive
+		// was unmounted), treat it as fatal so we don't spin forever.
+		if logErr := logTrackError(error(msg)); logErr != nil {
+			m.nostrStatus = fmt.Sprintf("Skipped a track (log write failed: %v)", logErr)
+		} else {
+			m.nostrStatus = fmt.Sprintf("Skipped unreadable track — see %s", errorLogPath())
+		}
+
+		m.loadFailures++
+		if m.loadFailures >= len(m.playlist) {
+			m.err = fmt.Errorf("no playable tracks: %d consecutive load failures (see %s)", m.loadFailures, errorLogPath())
+			return m, nil
+		}
+
+		m.player.Stop()
+		m.currentIndex++
+		if m.currentIndex >= len(m.playlist) {
+			m.currentIndex = 0 // Loop back to the first track
+		}
+		return m, m.loadCurrentTrack()
 
 	case positionMsg:
 		m.position = time.Duration(msg)

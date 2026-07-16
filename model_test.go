@@ -50,6 +50,66 @@ func TestTrackLoadedMsgStashesSumAndTags(t *testing.T) {
 	}
 }
 
+// TestPlayErrorSkipsToNextTrack verifies a single load/play failure is
+// non-fatal: the model logs it, advances to the next track, and returns a
+// reload command instead of setting m.err (which would freeze the UI).
+func TestPlayErrorSkipsToNextTrack(t *testing.T) {
+	t.Setenv("USERPROFILE", t.TempDir()) // keep the log out of the real home
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewPlayerModel([]string{"a.mp3", "b.mp3", "c.mp3"})
+	m.currentIndex = 0
+
+	_, cmd := m.Update(playErrorMsg(fmt.Errorf("failed to load track %q: boom", "a.mp3")))
+
+	if m.err != nil {
+		t.Fatalf("m.err set on a single failure; skip should be non-fatal: %v", m.err)
+	}
+	if m.currentIndex != 1 {
+		t.Errorf("currentIndex = %d, want 1 (advanced to next track)", m.currentIndex)
+	}
+	if m.loadFailures != 1 {
+		t.Errorf("loadFailures = %d, want 1", m.loadFailures)
+	}
+	if cmd == nil {
+		t.Errorf("expected a reload command to load the next track, got nil")
+	}
+}
+
+// TestPlayErrorFatalAfterWholePlaylistFails verifies the runaway guard: once
+// consecutive failures reach the playlist length (nothing plays at all), the
+// model surfaces a fatal error rather than looping forever.
+func TestPlayErrorFatalAfterWholePlaylistFails(t *testing.T) {
+	t.Setenv("USERPROFILE", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewPlayerModel([]string{"a.mp3", "b.mp3"})
+
+	m.Update(playErrorMsg(fmt.Errorf("fail 1")))
+	if m.err != nil {
+		t.Fatalf("first failure should not be fatal: %v", m.err)
+	}
+	_, cmd := m.Update(playErrorMsg(fmt.Errorf("fail 2")))
+	if m.err == nil {
+		t.Fatalf("second failure (== playlist length) should be fatal")
+	}
+	if cmd != nil {
+		t.Errorf("no reload command expected once fatal, got one")
+	}
+}
+
+// TestTrackLoadedResetsFailureGuard verifies a successful load clears the
+// consecutive-failure counter so a bad track earlier in the run doesn't push
+// a later, unrelated failure over the fatal threshold.
+func TestTrackLoadedResetsFailureGuard(t *testing.T) {
+	m := NewPlayerModel([]string{"a.mp3", "b.mp3"})
+	m.loadFailures = 1
+	m.Update(trackLoadedMsg{title: "X", artist: "Y"})
+	if m.loadFailures != 0 {
+		t.Errorf("loadFailures = %d after a successful load, want 0", m.loadFailures)
+	}
+}
+
 func TestRenderTagsColumnEmpty(t *testing.T) {
 	if got := renderTagsColumn(nil); got != "" {
 		t.Errorf("renderTagsColumn(nil) = %q, want \"\"", got)
