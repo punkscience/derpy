@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -15,12 +16,21 @@ import (
 // defaultNostrRelays is the fallback relay list used when the user has not
 // configured any relays via 'derpy relay add'.
 // relay.damus.io and nos.lol are generally open for writes.
-// relay.nostr.band is primarily a read/indexer relay — useful for fetches.
 var defaultNostrRelays = []string{
 	"wss://relay.damus.io",
 	"wss://nos.lol",
 	"wss://relay.primal.net",
 	"wss://nostr.wine",
+}
+
+// nip65IndexRelays are read-only indexer relays that aggregate kind-10002
+// relay lists from across the network. They are queried (in addition to the
+// configured relays) when looking up a user's NIP-65 relay list, because the
+// user may have published their relay list from another client to relays
+// derpy is not configured with. purplepag.es is the canonical NIP-65 index.
+var nip65IndexRelays = []string{
+	"wss://purplepag.es",
+	"wss://relay.nostr.band",
 }
 
 // publishToRelays connects to all relays concurrently and publishes ev to each.
@@ -159,6 +169,8 @@ func npubFromPrivateKey(hexPrivKey string) (string, error) {
 
 // fetchUserWriteRelays fetches the user's NIP-65 relay list (kind 10002) and
 // returns the URLs they have marked as write (or read+write) relays.
+// The query goes to the configured relays plus the NIP-65 indexer relays so
+// a list published from another client is still found.
 // Returns nil when no relay list event is found so callers can fall back.
 func fetchUserWriteRelays(ctx context.Context, pubHex string) []string {
 	filter := nostr.Filter{
@@ -166,10 +178,16 @@ func fetchUserWriteRelays(ctx context.Context, pubHex string) []string {
 		Authors: []string{pubHex},
 		Limit:   1,
 	}
-	ev := queryRelays(ctx, LoadNostrRelays(), filter)
+	ev := queryRelays(ctx, unionRelays(LoadNostrRelays(), nip65IndexRelays), filter)
 	if ev == nil {
 		return nil
 	}
+	return parseWriteRelays(ev)
+}
+
+// parseWriteRelays extracts the write (or read+write) relay URLs from a
+// kind-10002 NIP-65 relay list event.
+func parseWriteRelays(ev *nostr.Event) []string {
 	var relays []string
 	for _, tag := range ev.Tags {
 		// NIP-65 relay tag: ["r", "wss://...", ("read"|"write")?]
@@ -182,6 +200,46 @@ func fetchUserWriteRelays(ctx context.Context, pubHex string) []string {
 		}
 	}
 	return relays
+}
+
+// nip65Cache memoises the user's NIP-65 write relays for the lifetime of the
+// process (with a TTL) so repeated publishes in one TUI session don't re-query
+// the network every time. Empty results are cached too, so an offline session
+// doesn't pay the lookup timeout on every earmark or post.
+var nip65Cache = struct {
+	sync.Mutex
+	pubHex    string
+	relays    []string
+	fetchedAt time.Time
+}{}
+
+// nip65CacheTTL is how long a cached NIP-65 lookup stays fresh.
+const nip65CacheTTL = 15 * time.Minute
+
+// userPublishRelays returns the full outbox relay set for the user's own
+// events: their NIP-65 write relays unioned with the configured relay list.
+// The NIP-65 lookup runs with its own short timeout and is TTL-cached; when
+// it fails or the user has no relay list, the configured relays are used alone.
+func userPublishRelays(pubHex string) []string {
+	nip65Cache.Lock()
+	if nip65Cache.pubHex == pubHex && time.Since(nip65Cache.fetchedAt) < nip65CacheTTL {
+		cached := nip65Cache.relays
+		nip65Cache.Unlock()
+		return unionRelays(cached, LoadNostrRelays())
+	}
+	nip65Cache.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	writeRelays := fetchUserWriteRelays(ctx, pubHex)
+	cancel()
+
+	nip65Cache.Lock()
+	nip65Cache.pubHex = pubHex
+	nip65Cache.relays = writeRelays
+	nip65Cache.fetchedAt = time.Now()
+	nip65Cache.Unlock()
+
+	return unionRelays(writeRelays, LoadNostrRelays())
 }
 
 // unionRelays returns a deduplicated slice containing all URLs from a and b,
@@ -221,6 +279,24 @@ func PublishNostrTrackNote(privateKey, artist, title, album string) error {
 	// Search for a single listen link: Bandcamp preferred, YouTube as fallback.
 	// This is best-effort — a missing link does not block publishing.
 	link := FindBestLink(artist, title, album)
+
+	ev := buildTrackNote(npub, pubHex, artist, title, link)
+	if err := ev.Sign(hexKey); err != nil {
+		return fmt.Errorf("could not sign Nostr event: %w", err)
+	}
+
+	// Outbox model: publish to the user's NIP-65 write relays (so the event
+	// appears wherever their profile is followed from) unioned with the
+	// configured relay list.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return publishToRelays(ctx, userPublishRelays(pubHex), ev)
+}
+
+// buildTrackNote assembles the unsigned kind-1 event for a track post.
+// Split out from PublishNostrTrackNote so content and tag construction are
+// unit-testable without touching the network.
+func buildTrackNote(npub, pubHex, artist, title, link string) nostr.Event {
 	var linkSection string
 	if link != "" {
 		linkSection = "\n\n" + link
@@ -248,28 +324,18 @@ func PublishNostrTrackNote(privateKey, artist, title, album string) error {
 		linkSection,
 	)
 
-	ev := nostr.Event{
+	return nostr.Event{
 		PubKey:    pubHex,
 		CreatedAt: nostr.Timestamp(time.Now().Unix()),
 		Kind:      nostr.KindTextNote, // kind 1 — plain text note
 		Content:   content,
-		Tags:      nostr.Tags{},
+		Tags: nostr.Tags{
+			// NIP-27: a nostr:npub mention in content gets a matching p tag.
+			{"p", pubHex},
+			// NIP-24: hashtags in content get lowercase t tags so relay
+			// search and hashtag feeds can index the note.
+			{"t", "music"},
+			{"t", "derpy"},
+		},
 	}
-	if err := ev.Sign(hexKey); err != nil {
-		return fmt.Errorf("could not sign Nostr event: %w", err)
-	}
-
-	// Resolve target relays: the user's NIP-65 write relays (so the event
-	// appears on their Nostr profile) unioned with the configured relay list.
-	// NIP-65 lookup gets its own short timeout so a slow relay doesn't eat into
-	// the publish budget.
-	nip65Ctx, nip65Cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	userRelays := fetchUserWriteRelays(nip65Ctx, pubHex)
-	nip65Cancel()
-
-	relays := unionRelays(userRelays, LoadNostrRelays())
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	return publishToRelays(ctx, relays, ev)
 }

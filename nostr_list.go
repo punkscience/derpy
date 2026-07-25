@@ -80,8 +80,11 @@ func fetchEarmarksCtx(ctx context.Context, hexPrivKey string) ([]Earmark, error)
 		Limit:   1,
 	}
 
-	// Query all relays concurrently; keep the most recently created event.
-	latest := queryRelays(ctx, LoadNostrRelays(), filter)
+	// Query the user's outbox relay set (NIP-65 write relays ∪ configured
+	// relays) concurrently; keep the most recently created event. The list is
+	// published to the same set, so fetching from it finds the latest version
+	// even when the configured relays and the user's relay list don't overlap.
+	latest := queryRelays(ctx, userPublishRelays(pubHex), filter)
 	if latest == nil {
 		return []Earmark{}, nil
 	}
@@ -293,5 +296,8 @@ func publishEarmarks(ctx context.Context, hexPrivKey string, earmarks []Earmark)
 		return fmt.Errorf("could not sign earmark event: %w", err)
 	}
 
-	return publishToRelays(ctx, LoadNostrRelays(), ev)
+	// Outbox model: the user's own addressable events belong on their NIP-65
+	// write relays, not just derpy's configured set — another derpy install
+	// (or any client reading their relay list) can then find the earmarks.
+	return publishToRelays(ctx, userPublishRelays(pubHex), ev)
 }
