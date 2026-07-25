@@ -294,6 +294,78 @@ func TestPublishNostrTrackNote_UsesNostrURIScheme(t *testing.T) {
 	}
 }
 
+// TestBuildTrackNote_Tags verifies the outbox-model event hygiene learned in
+// punk-post: the nostr:npub mention in content carries a matching p tag
+// (NIP-27) and the #music/#derpy hashtags carry lowercase t tags (NIP-24) so
+// relays and hashtag feeds can index the note.
+func TestBuildTrackNote_Tags(t *testing.T) {
+	hexKey := nostr.GeneratePrivateKey()
+	pubHex, err := nostr.GetPublicKey(hexKey)
+	if err != nil {
+		t.Fatalf("could not derive public key: %v", err)
+	}
+	npub, err := npubFromPrivateKey(hexKey)
+	if err != nil {
+		t.Fatalf("could not derive npub: %v", err)
+	}
+
+	ev := buildTrackNote(npub, pubHex, "Test Artist", "The Song", "https://example.com/listen")
+
+	if ev.Kind != nostr.KindTextNote {
+		t.Errorf("expected kind 1, got %d", ev.Kind)
+	}
+	if !strings.HasPrefix(ev.Content, "nostr:"+npub) {
+		t.Errorf("content should start with nostr: URI, got %q", ev.Content)
+	}
+
+	var gotP, gotMusic, gotDerpy bool
+	for _, tag := range ev.Tags {
+		if len(tag) < 2 {
+			continue
+		}
+		switch {
+		case tag[0] == "p" && tag[1] == pubHex:
+			gotP = true
+		case tag[0] == "t" && tag[1] == "music":
+			gotMusic = true
+		case tag[0] == "t" && tag[1] == "derpy":
+			gotDerpy = true
+		}
+	}
+	if !gotP {
+		t.Error("missing p tag for the nostr:npub mention (NIP-27)")
+	}
+	if !gotMusic || !gotDerpy {
+		t.Errorf("missing t tags for hashtags (NIP-24): music=%v derpy=%v", gotMusic, gotDerpy)
+	}
+}
+
+// TestParseWriteRelays verifies NIP-65 kind-10002 tag parsing: bare r tags
+// count as read+write, "write" markers are included, "read" markers excluded.
+func TestParseWriteRelays(t *testing.T) {
+	ev := &nostr.Event{
+		Kind: 10002,
+		Tags: nostr.Tags{
+			{"r", "wss://both.example.com"},           // no marker → read+write
+			{"r", "wss://write.example.com", "write"}, // explicit write
+			{"r", "wss://read.example.com", "read"},   // read-only → excluded
+			{"e", "not-a-relay-tag"},                  // ignored
+			{"r"},                                     // malformed → ignored
+		},
+	}
+
+	got := parseWriteRelays(ev)
+	want := []string{"wss://both.example.com", "wss://write.example.com"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("[%d] got %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 // TestResolveNostrKeyEmpty verifies that resolveNostrKey returns empty string
 // when no key is available from any source (env or config).
 func TestResolveNostrKeyEmpty(t *testing.T) {
