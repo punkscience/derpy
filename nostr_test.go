@@ -158,6 +158,52 @@ func TestPublishNostrTrackNote_UsesNostrURIScheme(t *testing.T) {
 	}
 }
 
+// TestBuildTrackNote_Tags verifies the outbox-model event hygiene learned in
+// punk-post: the nostr:npub mention in content carries a matching p tag
+// (NIP-27) and the #music/#derpy hashtags carry lowercase t tags (NIP-24) so
+// relays and hashtag feeds can index the note.
+func TestBuildTrackNote_Tags(t *testing.T) {
+	hexKey := nostr.GeneratePrivateKey()
+	pubHex, err := nostr.GetPublicKey(hexKey)
+	if err != nil {
+		t.Fatalf("could not derive public key: %v", err)
+	}
+	npub, err := core.NpubFromPrivateKey(hexKey)
+	if err != nil {
+		t.Fatalf("could not derive npub: %v", err)
+	}
+
+	ev := buildTrackNote(npub, pubHex, "Test Artist", "The Song", "https://example.com/listen")
+
+	if ev.Kind != nostr.KindTextNote {
+		t.Errorf("expected kind 1, got %d", ev.Kind)
+	}
+	if !strings.HasPrefix(ev.Content, "nostr:"+npub) {
+		t.Errorf("content should start with nostr: URI, got %q", ev.Content)
+	}
+
+	var gotP, gotMusic, gotDerpy bool
+	for _, tag := range ev.Tags {
+		if len(tag) < 2 {
+			continue
+		}
+		switch {
+		case tag[0] == "p" && tag[1] == pubHex:
+			gotP = true
+		case tag[0] == "t" && tag[1] == "music":
+			gotMusic = true
+		case tag[0] == "t" && tag[1] == "derpy":
+			gotDerpy = true
+		}
+	}
+	if !gotP {
+		t.Error("missing p tag for the nostr:npub mention (NIP-27)")
+	}
+	if !gotMusic || !gotDerpy {
+		t.Errorf("missing t tags for hashtags (NIP-24): music=%v derpy=%v", gotMusic, gotDerpy)
+	}
+}
+
 // TestResolveNostrKeyEmpty verifies that resolveNostrKey returns empty string
 // when no key is available from any source (env or config).
 func TestResolveNostrKeyEmpty(t *testing.T) {

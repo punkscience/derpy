@@ -10,10 +10,11 @@ import (
 	core "github.com/punkscience/earmark/earmark-core"
 )
 
-// The earmark protocol itself — relays, Blossom, the encrypted list, channels —
-// lives in github.com/punkscience/earmark/earmark-core, shared with the earmark
-// CLI. What stays here is derpy's own key resolution and its "digging this
-// track" note, neither of which is protocol.
+// The earmark protocol itself — relays, Blossom, the encrypted list, channels,
+// and the NIP-65 outbox relay set — lives in
+// github.com/punkscience/earmark/earmark-core, shared with the earmark CLI.
+// What stays here is derpy's own key resolution and its "digging this track"
+// note, neither of which is protocol.
 
 // resolveNostrKey returns derpy's configured Nostr private key (raw hex),
 // preferring the DERPY_NOSTR_KEY environment variable over the config file.
@@ -52,6 +53,24 @@ func PublishNostrTrackNote(privateKey, artist, title, album string) error {
 	// Search for a single listen link: Bandcamp preferred, YouTube as fallback.
 	// This is best-effort — a missing link does not block publishing.
 	link := FindBestLink(artist, title, album)
+
+	ev := buildTrackNote(npub, pubHex, artist, title, link)
+	if err := ev.Sign(hexKey); err != nil {
+		return fmt.Errorf("could not sign Nostr event: %w", err)
+	}
+
+	// Outbox model: publish to the user's NIP-65 write relays (so the event
+	// appears wherever their profile is followed from) unioned with the
+	// configured relay list. The lookup is TTL-cached inside the core.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return core.PublishToRelays(ctx, core.UserPublishRelays(pubHex), ev)
+}
+
+// buildTrackNote assembles the unsigned kind-1 event for a track post.
+// Split out from PublishNostrTrackNote so content and tag construction are
+// unit-testable without touching the network.
+func buildTrackNote(npub, pubHex, artist, title, link string) nostr.Event {
 	var linkSection string
 	if link != "" {
 		linkSection = "\n\n" + link
@@ -79,28 +98,18 @@ func PublishNostrTrackNote(privateKey, artist, title, album string) error {
 		linkSection,
 	)
 
-	ev := nostr.Event{
+	return nostr.Event{
 		PubKey:    pubHex,
 		CreatedAt: nostr.Timestamp(time.Now().Unix()),
 		Kind:      nostr.KindTextNote, // kind 1 — plain text note
 		Content:   content,
-		Tags:      nostr.Tags{},
+		Tags: nostr.Tags{
+			// NIP-27: a nostr:npub mention in content gets a matching p tag.
+			{"p", pubHex},
+			// NIP-24: hashtags in content get lowercase t tags so relay
+			// search and hashtag feeds can index the note.
+			{"t", "music"},
+			{"t", "derpy"},
+		},
 	}
-	if err := ev.Sign(hexKey); err != nil {
-		return fmt.Errorf("could not sign Nostr event: %w", err)
-	}
-
-	// Resolve target relays: the user's NIP-65 write relays (so the event
-	// appears on their Nostr profile) unioned with the configured relay list.
-	// NIP-65 lookup gets its own short timeout so a slow relay doesn't eat into
-	// the publish budget.
-	nip65Ctx, nip65Cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	userRelays := core.FetchUserWriteRelays(nip65Ctx, pubHex)
-	nip65Cancel()
-
-	relays := core.UnionStrings(userRelays, LoadNostrRelays())
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	return core.PublishToRelays(ctx, relays, ev)
 }
