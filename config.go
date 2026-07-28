@@ -57,9 +57,13 @@ func configureCore() {
 	if err != nil {
 		cfg = &Config{}
 	}
+	dir, _ := configDir()
 	core.Configure(core.Settings{
 		Relays:         cfg.NostrRelays,
 		BlossomServers: cfg.BlossomServers,
+		// Lets the NIP-65 lookup survive between runs instead of costing a
+		// relay round-trip on every launch.
+		CacheDir: dir,
 	})
 }
 

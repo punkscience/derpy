@@ -818,6 +818,15 @@ func (m *PlayerModel) View() string {
 		case m.channelFeedErr != "":
 			content.WriteString(psPrompt.Render("  " + m.channelFeedErr))
 			content.WriteString("\n")
+		case len(m.channels) == 0:
+			// Being in no channels and being in an empty one look identical
+			// otherwise, and neither hints that the feature exists at all.
+			content.WriteString(psPrompt.Render("  you are not in any channels yet."))
+			content.WriteString("\n")
+			content.WriteString(psPrompt.Render("  create one:   earmark channel create <name>"))
+			content.WriteString("\n")
+			content.WriteString(psPrompt.Render("  then invite:  earmark channel invite <name> <npub>"))
+			content.WriteString("\n")
 		case len(m.channelPosts) == 0:
 			// No backfill is by design, so say so rather than leaving the user
 			// staring at an empty list wondering what broke.
