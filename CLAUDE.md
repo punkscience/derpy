@@ -20,6 +20,16 @@ go build -o derpy
 
 ## Architecture
 
+### The earmark protocol is not in this repo
+
+Everything to do with earmarks — AES-256-GCM chunking, Blossom upload/download/mirror, the NIP-44 self-encrypted Nostr list, and channels — lives in **`github.com/punkscience/earmark/earmark-core`**, shared with the [earmark CLI](https://github.com/punkscience/earmark). derpy imports it as `core`.
+
+`blossom.go`, `nostr_list.go` and most of `nostr.go` used to live here and were deleted when the core was extracted. **Do not reintroduce protocol code in this repo** — a second implementation is exactly the drift the extraction was done to prevent. Read `earmark-core/AGENTS.md` before changing anything protocol-shaped, and `docs/PROTOCOL.md` in that repo for the wire format.
+
+The core reads no config files. `configureCore()` in `config.go` pushes derpy's relay and Blossom server lists into it; it runs at startup in `main()` and again from `SaveConfig`. A new core setting that is not added to `configureCore` silently does nothing.
+
+> **Versioned dependency.** derpy consumes tagged releases of the core (`earmark-core/vX.Y.Z` tags on the earmark repo), currently v0.1.0. It builds standalone — no sibling checkout needed. To develop against unreleased core changes, add a temporary `replace => ../earmark/earmark-core` and drop it before committing.
+
 | File | Role |
 |------|------|
 | `main.go` | CLI args, recursive directory scan, playlist init, TUI/non-TUI dispatch |
@@ -38,7 +48,16 @@ go build -o derpy
 
 **TUI:** 100ms tick interval for progress updates. Position is calculated from elapsed wall-clock time with pause offset. Right-edge **Tag** column appears when the current Track has Tags and terminal width ≥ 60.
 
-**Keyboard controls:** `←`/`→` prev/next track, `SPACE` pause/resume, `[E]` earmark, `[P]` post, `[T]` tag, `[D]` delete, `ESC`/`q` quit.
+**Keyboard controls:** `←`/`→` prev/next track, `SPACE` pause/resume, `[E]` earmark, `[C]` channels, `[P]` post, `[T]` tag, `[D]` delete, `ESC`/`q` quit.
+
+### Channels
+
+A channel is a room of Nostr identities sharing earmarks. The full contract is the Channels section of `docs/PROTOCOL.md` in the earmark repo. What matters here:
+
+- **`[E]` opens a target picker** when the user is in any channels, defaulting to "personal only" — so the pre-channels flow is still `[E]` then enter. Channels are additions; an earmark always lands in the personal list. Channel state is loaded once in the background at startup so `[E]` never blocks on a relay.
+- **`[C]` browses the channel feed** and plays a selected post inline: downloaded, decrypted, and slotted in after the current track. Listening is not keeping — adopting a post into your own stash is `earmark channel keep` in the CLI.
+- **Posting shares nothing new.** The post hands members the existing chunk hashes and file key, so it costs one small event per member and zero bytes.
+- **There is no backfill**, and the empty-feed message says so. A newly joined channel being empty is correct, not broken.
 
 **Tag and Sum architecture:** See `CONTEXT.md` for the glossary (Track, Tag, Sum, Sum cache, Tag index) and `docs/adr/0001-tags-external-index.md` for why Tags live in a derpy-side index keyed by `tag.Sum` rather than being written into the audio file's ID3v2/Vorbis Comments.
 

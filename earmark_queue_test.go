@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	core "github.com/punkscience/earmark/earmark-core"
 )
 
 // withTempQueue redirects the home directory used by queueFilePath() to a
@@ -38,8 +40,8 @@ func TestLoadQueueEmpty(t *testing.T) {
 // subsequent LoadQueue calls return all of them in order.
 func TestAppendToQueue(t *testing.T) {
 	withTempQueue(t, func() {
-		e1 := Earmark{Artist: "Coltrane", Title: "Resolution", Timestamp: 1000}
-		e2 := Earmark{Artist: "Miles Davis", Title: "So What", Timestamp: 1001}
+		e1 := core.Earmark{Artist: "Coltrane", Title: "Resolution", Timestamp: 1000}
+		e2 := core.Earmark{Artist: "Miles Davis", Title: "So What", Timestamp: 1001}
 
 		if err := AppendToQueue(e1); err != nil {
 			t.Fatalf("AppendToQueue e1: %v", err)
@@ -68,11 +70,11 @@ func TestAppendToQueue(t *testing.T) {
 // the given Timestamp and leaves all other entries intact.
 func TestRemoveFromQueue(t *testing.T) {
 	withTempQueue(t, func() {
-		e1 := Earmark{Artist: "Coltrane", Title: "Resolution", Timestamp: 2000}
-		e2 := Earmark{Artist: "Miles Davis", Title: "So What", Timestamp: 2001}
-		e3 := Earmark{Artist: "Bill Evans", Title: "Waltz for Debby", Timestamp: 2002}
+		e1 := core.Earmark{Artist: "Coltrane", Title: "Resolution", Timestamp: 2000}
+		e2 := core.Earmark{Artist: "Miles Davis", Title: "So What", Timestamp: 2001}
+		e3 := core.Earmark{Artist: "Bill Evans", Title: "Waltz for Debby", Timestamp: 2002}
 
-		for _, e := range []Earmark{e1, e2, e3} {
+		for _, e := range []core.Earmark{e1, e2, e3} {
 			_ = AppendToQueue(e)
 		}
 
@@ -96,10 +98,10 @@ func TestRemoveFromQueue(t *testing.T) {
 // no entry matches the given Timestamp.
 func TestRemoveFromQueueNoMatch(t *testing.T) {
 	withTempQueue(t, func() {
-		e := Earmark{Artist: "Coltrane", Title: "Resolution", Timestamp: 3000}
+		e := core.Earmark{Artist: "Coltrane", Title: "Resolution", Timestamp: 3000}
 		_ = AppendToQueue(e)
 
-		ghost := Earmark{Timestamp: 9999}
+		ghost := core.Earmark{Timestamp: 9999}
 		if err := RemoveFromQueue(ghost); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -115,7 +117,7 @@ func TestRemoveFromQueueNoMatch(t *testing.T) {
 // a temp path, and that the file is valid JSON after the write.
 func TestSaveQueueAtomicWrite(t *testing.T) {
 	withTempQueue(t, func() {
-		e := Earmark{Artist: "Monk", Title: "Round Midnight", Timestamp: 4000}
+		e := core.Earmark{Artist: "Monk", Title: "Round Midnight", Timestamp: 4000}
 		if err := AppendToQueue(e); err != nil {
 			t.Fatalf("AppendToQueue: %v", err)
 		}
@@ -139,19 +141,19 @@ func TestSaveQueueAtomicWrite(t *testing.T) {
 
 // TestIsDuplicateEarmark_PathKey verifies that Path is the primary dedup key.
 func TestIsDuplicateEarmark_PathKey(t *testing.T) {
-	existing := []Earmark{
+	existing := []core.Earmark{
 		{Artist: "Coltrane", Title: "Resolution", Path: "/music/resolution.flac", Timestamp: 1},
 	}
 
 	// Same path — duplicate regardless of differing metadata.
-	dup := Earmark{Artist: "Other", Title: "Other", Path: "/music/resolution.flac"}
-	if !isDuplicateEarmark(existing, dup) {
+	dup := core.Earmark{Artist: "Other", Title: "Other", Path: "/music/resolution.flac"}
+	if !core.IsDuplicateEarmark(existing, dup) {
 		t.Error("expected duplicate for matching path, got false")
 	}
 
 	// Different path — not a duplicate.
-	fresh := Earmark{Artist: "Coltrane", Title: "Resolution", Path: "/music/other.flac"}
-	if isDuplicateEarmark(existing, fresh) {
+	fresh := core.Earmark{Artist: "Coltrane", Title: "Resolution", Path: "/music/other.flac"}
+	if core.IsDuplicateEarmark(existing, fresh) {
 		t.Error("expected non-duplicate for different path, got true")
 	}
 }
@@ -159,17 +161,17 @@ func TestIsDuplicateEarmark_PathKey(t *testing.T) {
 // TestIsDuplicateEarmark_MetadataFallback verifies the Artist+Album+Title
 // fallback when Path is empty.
 func TestIsDuplicateEarmark_MetadataFallback(t *testing.T) {
-	existing := []Earmark{
+	existing := []core.Earmark{
 		{Artist: "Miles Davis", Album: "Kind of Blue", Title: "So What", Path: ""},
 	}
 
-	dup := Earmark{Artist: "Miles Davis", Album: "Kind of Blue", Title: "So What", Path: ""}
-	if !isDuplicateEarmark(existing, dup) {
+	dup := core.Earmark{Artist: "Miles Davis", Album: "Kind of Blue", Title: "So What", Path: ""}
+	if !core.IsDuplicateEarmark(existing, dup) {
 		t.Error("expected duplicate for matching artist/album/title, got false")
 	}
 
-	diff := Earmark{Artist: "Miles Davis", Album: "Kind of Blue", Title: "Blue in Green", Path: ""}
-	if isDuplicateEarmark(existing, diff) {
+	diff := core.Earmark{Artist: "Miles Davis", Album: "Kind of Blue", Title: "Blue in Green", Path: ""}
+	if core.IsDuplicateEarmark(existing, diff) {
 		t.Error("expected non-duplicate for different title, got true")
 	}
 }
@@ -178,11 +180,11 @@ func TestIsDuplicateEarmark_MetadataFallback(t *testing.T) {
 // an entry whose path already exists in the queue.
 func TestAppendToQueue_NoDuplicates(t *testing.T) {
 	withTempQueue(t, func() {
-		e := Earmark{Artist: "Monk", Title: "Round Midnight", Path: "/music/monk.flac", Timestamp: 6000}
+		e := core.Earmark{Artist: "Monk", Title: "Round Midnight", Path: "/music/monk.flac", Timestamp: 6000}
 		_ = AppendToQueue(e)
 
 		// Second append with the same path should be a no-op.
-		e2 := Earmark{Artist: "Monk", Title: "Round Midnight", Path: "/music/monk.flac", Timestamp: 6001}
+		e2 := core.Earmark{Artist: "Monk", Title: "Round Midnight", Path: "/music/monk.flac", Timestamp: 6001}
 		if err := AppendToQueue(e2); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -201,7 +203,7 @@ func TestAppendToQueue_NoDuplicates(t *testing.T) {
 // TestQueueRoundTrip verifies a full append → load → remove cycle.
 func TestQueueRoundTrip(t *testing.T) {
 	withTempQueue(t, func() {
-		earmarks := []Earmark{
+		earmarks := []core.Earmark{
 			{Artist: "Coltrane", Album: "A Love Supreme", Title: "Acknowledgement", Timestamp: 5000},
 			{Artist: "Coltrane", Album: "A Love Supreme", Title: "Resolution", Timestamp: 5001},
 			{Artist: "Coltrane", Album: "A Love Supreme", Title: "Pursuance", Timestamp: 5002},

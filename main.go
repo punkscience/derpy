@@ -12,9 +12,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"derpy/internal/filter"
+
+	core "github.com/punkscience/earmark/earmark-core"
 )
 
 func main() {
+	configureCore()
 	if err := rootCmd().Execute(); err != nil {
 		os.Exit(1)
 	}
@@ -244,7 +247,7 @@ Pass an empty string to clear the saved key:
 			}
 
 			// Validate and normalise to hex before storing.
-			hexKey, err := resolvePrivateKey(rawInput)
+			hexKey, err := core.ResolvePrivateKey(rawInput)
 			if err != nil {
 				return fmt.Errorf("invalid key: %w", err)
 			}
@@ -489,7 +492,7 @@ Requires a Nostr private key saved via 'derpy nostr-key <key>'.`,
 
 			fmt.Fprintln(cmd.OutOrStdout(), "Fetching earmarks from Nostr...")
 
-			earmarks, err := FetchEarmarks(hexKey)
+			earmarks, err := core.FetchEarmarks(hexKey)
 			if err != nil {
 				return fmt.Errorf("could not fetch earmarks: %w", err)
 			}
@@ -542,10 +545,10 @@ Requires a Nostr private key saved via 'derpy nostr-key <key>'.`,
 					desc = "(unknown track)"
 				}
 				pathInfo := ""
-			if e.Path != "" {
-				pathInfo = "\n        " + e.Path
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), " %3d.  %-60s  (%s)%s\n", i+1, desc, ts, pathInfo)
+				if e.Path != "" {
+					pathInfo = "\n        " + e.Path
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), " %3d.  %-60s  (%s)%s\n", i+1, desc, ts, pathInfo)
 			}
 			return nil
 		},
@@ -602,7 +605,7 @@ func relayAddCmd() *cobra.Command {
 			}
 			// Start from defaults if this is the first custom relay.
 			if len(cfg.NostrRelays) == 0 {
-				cfg.NostrRelays = append([]string{}, defaultNostrRelays...)
+				cfg.NostrRelays = append([]string{}, core.DefaultRelays()...)
 			}
 			for _, r := range cfg.NostrRelays {
 				if r == url {
@@ -633,7 +636,7 @@ func relayRemoveCmd() *cobra.Command {
 			}
 			// Operate on defaults if nothing custom is saved yet.
 			if len(cfg.NostrRelays) == 0 {
-				cfg.NostrRelays = append([]string{}, defaultNostrRelays...)
+				cfg.NostrRelays = append([]string{}, core.DefaultRelays()...)
 			}
 			filtered := cfg.NostrRelays[:0]
 			found := false
@@ -672,7 +675,7 @@ func relayResetCmd() *cobra.Command {
 				return fmt.Errorf("could not save config: %w", err)
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "Relay list reset to defaults:")
-			for _, r := range defaultNostrRelays {
+			for _, r := range core.DefaultRelays() {
 				fmt.Fprintln(cmd.OutOrStdout(), " ", r)
 			}
 			return nil
@@ -702,7 +705,7 @@ func blossomListCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, _ := LoadConfig()
-			servers := LoadBlossomServers()
+			servers := core.BlossomServers()
 			if len(cfg.BlossomServers) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "(using built-in defaults)")
 			}
@@ -729,7 +732,7 @@ func blossomAddCmd() *cobra.Command {
 				cfg = &Config{}
 			}
 			if len(cfg.BlossomServers) == 0 {
-				cfg.BlossomServers = append([]string{}, defaultBlossomServers...)
+				cfg.BlossomServers = append([]string{}, core.DefaultBlossomServers()...)
 			}
 			for _, s := range cfg.BlossomServers {
 				if s == url {
@@ -759,7 +762,7 @@ func blossomRemoveCmd() *cobra.Command {
 				cfg = &Config{}
 			}
 			if len(cfg.BlossomServers) == 0 {
-				cfg.BlossomServers = append([]string{}, defaultBlossomServers...)
+				cfg.BlossomServers = append([]string{}, core.DefaultBlossomServers()...)
 			}
 			filtered := cfg.BlossomServers[:0]
 			found := false
@@ -798,7 +801,7 @@ func blossomResetCmd() *cobra.Command {
 				return fmt.Errorf("could not save config: %w", err)
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "Blossom server list reset to defaults:")
-			for _, s := range defaultBlossomServers {
+			for _, s := range core.DefaultBlossomServers() {
 				fmt.Fprintln(cmd.OutOrStdout(), " ", s)
 			}
 			return nil
@@ -835,23 +838,23 @@ Requires a Nostr private key saved via 'derpy nostr-key <key>'.`,
 				return fmt.Errorf("no Nostr private key configured — run: derpy nostr-key <nsec_or_hex_key>")
 			}
 
-				if nuke {
-					fmt.Fprintln(cmd.OutOrStdout(), "Fetching earmarks...")
-					n, err := NukeEarmarks(hexKey)
-					if err != nil {
-						return fmt.Errorf("nuke failed: %w", err)
-					}
-					if n == 0 {
-						fmt.Fprintln(cmd.OutOrStdout(), "Nothing to nuke — earmark list was already empty.")
-					} else {
-						fmt.Fprintf(cmd.OutOrStdout(), "Nuked %d earmark(s) and their Blossom chunks.\n", n)
-					}
-					return nil
+			if nuke {
+				fmt.Fprintln(cmd.OutOrStdout(), "Fetching earmarks...")
+				n, err := core.NukeEarmarks(hexKey)
+				if err != nil {
+					return fmt.Errorf("nuke failed: %w", err)
 				}
+				if n == 0 {
+					fmt.Fprintln(cmd.OutOrStdout(), "Nothing to nuke — earmark list was already empty.")
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "Nuked %d earmark(s) and their Blossom chunks.\n", n)
+				}
+				return nil
+			}
 
 			fmt.Fprintln(cmd.OutOrStdout(), "Fetching earmarks from Nostr...")
 
-			earmarks, err := FetchEarmarks(hexKey)
+			earmarks, err := core.FetchEarmarks(hexKey)
 			if err != nil {
 				return fmt.Errorf("could not fetch earmarks: %w", err)
 			}
@@ -866,7 +869,7 @@ Requires a Nostr private key saved via 'derpy nostr-key <key>'.`,
 
 			type dlWork struct {
 				idx     int
-				earmark Earmark
+				earmark core.Earmark
 			}
 			var work []dlWork
 
@@ -900,7 +903,7 @@ Requires a Nostr private key saved via 'derpy nostr-key <key>'.`,
 					go func() {
 						dlCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 						defer cancel()
-						path, err := DownloadAndReassemble(dlCtx, w.earmark.Blossom, hexKey, nil)
+						path, err := core.DownloadAndReassemble(dlCtx, w.earmark.Blossom, hexKey, nil)
 						results <- dlResult{w.idx, path, err}
 					}()
 				}

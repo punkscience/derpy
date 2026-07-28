@@ -11,6 +11,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	core "github.com/punkscience/earmark/earmark-core"
 )
 
 // PlayerModel represents the state of the music player TUI
@@ -35,10 +37,10 @@ type PlayerModel struct {
 
 	// Nostr key-entry state: when the user presses [E] or [P] and no key is
 	// configured, the TUI switches into a one-time key-entry mode.
-	nostrKeyEntry    bool   // true while waiting for the user to type their key
-	nostrKeyBuffer   string // accumulates characters typed by the user
-	nostrKeyForPost  bool   // true when key entry was triggered by [P] (public post) vs [E] (earmark)
-	nostrStatus      string // last Nostr result message shown to the user
+	nostrKeyEntry   bool   // true while waiting for the user to type their key
+	nostrKeyBuffer  string // accumulates characters typed by the user
+	nostrKeyForPost bool   // true when key entry was triggered by [P] (public post) vs [E] (earmark)
+	nostrStatus     string // last Nostr result message shown to the user
 
 	// Tag and Sum state. The TagIndex and SumCache are loaded once at startup
 	// and shared across all track-loads. currentSum/currentTags refresh on
@@ -64,6 +66,23 @@ type PlayerModel struct {
 	// spinnerFrame advances modulo 3 on each indexProgressMsg, driving the
 	// PS three-dot colour rotation (lime -> olive -> dark-olive).
 	spinnerFrame int
+
+	// Channel state. Channels are loaded once in the background at startup so
+	// pressing [E] never blocks on a relay round-trip; an empty list simply
+	// means [E] behaves exactly as it did before channels existed.
+	channels       []core.Channel
+	channelPicker  bool            // true while the [E] target overlay is up
+	channelCursor  int             // 0 = "personal only", 1..n = channels
+	channelTargets map[string]bool // channel ids selected as extra targets
+
+	// Channel feed browser, opened with [C]. Posts are fetched on demand
+	// rather than at startup — the feed is a deliberate detour, not something
+	// that should cost a relay round-trip on every launch.
+	channelFeed       bool
+	channelFeedLoad   bool // true while the fetch is in flight
+	channelPosts      []core.ChannelPost
+	channelFeedCursor int
+	channelFeedErr    string
 
 	// loadFailures counts consecutive track load/play failures. It is reset
 	// to zero on every successful load. When it reaches the playlist length
@@ -101,6 +120,28 @@ type trackLoadedMsg struct {
 	sum      string   // tag.Sum of the loaded Track, "" if hashing failed
 	tags     []string // Tags applied to the loaded Track (defensive copy from TagIndex)
 }
+
+// channelsLoadedMsg carries the user's channel list, fetched in the background
+// at startup. A failure is not reported: channels are an enhancement to [E],
+// and a relay being down should not produce an error the user cannot act on.
+type channelsLoadedMsg struct {
+	channels []core.Channel
+}
+
+// channelFeedMsg carries the result of a channel feed fetch.
+type channelFeedMsg struct {
+	posts    []core.ChannelPost
+	channels []core.Channel
+	err      error
+}
+
+// channelTrackReadyMsg carries a channel post that has been downloaded,
+// decrypted and reassembled to a local file, ready to play.
+type channelTrackReadyMsg struct {
+	path string
+	err  error
+}
+
 // nostrPublishedMsg is sent after a Nostr publish attempt completes.
 type nostrPublishedMsg struct {
 	err       error  // nil on success
@@ -125,9 +166,8 @@ type queueFlushedMsg struct {
 
 // cleanupMsg is sent after the startup old-earmark cleanup completes.
 type cleanupMsg struct {
-	removed int // number of earmarks older than EarmarkMaxAge that were purged
+	removed int // number of earmarks older than core.EarmarkMaxAge that were purged
 }
-
 
 type trackDeletedMsg struct {
 	err error
@@ -159,6 +199,7 @@ func (m *PlayerModel) Init() tea.Cmd {
 		m.tickCmd(),
 		m.flushQueueCmd(),   // retry any earmarks that failed to publish last session
 		m.cleanupCmd(),      // purge earmarks older than 30 days + their Blossom chunks
+		m.loadChannelsCmd(), // so [E] can offer channel targets without blocking
 	)
 }
 
@@ -170,6 +211,80 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case tea.KeyMsg:
+		// While the channel feed browser is up, consume all keystrokes.
+		if m.channelFeed {
+			switch msg.String() {
+			case "esc", "ctrl+c", "c":
+				m.channelFeed = false
+				return m, nil
+			case "up", "k":
+				if m.channelFeedCursor > 0 {
+					m.channelFeedCursor--
+				}
+				return m, nil
+			case "down", "j":
+				if m.channelFeedCursor < len(m.channelPosts)-1 {
+					m.channelFeedCursor++
+				}
+				return m, nil
+			case "enter":
+				if m.channelFeedLoad || len(m.channelPosts) == 0 {
+					return m, nil
+				}
+				post := m.channelPosts[m.channelFeedCursor]
+				m.channelFeed = false
+				m.nostrStatus = fmt.Sprintf("Fetching %s...", post.Earmark.Title)
+				return m, m.playChannelPostCmd(post)
+			}
+			return m, nil
+		}
+
+		// While the channel-target overlay is up, consume all keystrokes.
+		if m.channelPicker {
+			switch msg.String() {
+			case "esc", "ctrl+c":
+				m.channelPicker = false
+				return m, nil
+			case "up", "k":
+				if m.channelCursor > 0 {
+					m.channelCursor--
+				}
+				return m, nil
+			case "down", "j":
+				if m.channelCursor < len(m.channels) {
+					m.channelCursor++
+				}
+				return m, nil
+			case " ":
+				// Row 0 is "personal only" and is not a toggle — the earmark
+				// always lands in the personal list; channels are additions.
+				if m.channelCursor > 0 {
+					id := m.channels[m.channelCursor-1].Descriptor.ID
+					m.channelTargets[id] = !m.channelTargets[id]
+				}
+				return m, nil
+			case "enter":
+				m.channelPicker = false
+				var targets []string
+				for _, c := range m.channels {
+					if m.channelTargets[c.Descriptor.ID] {
+						targets = append(targets, c.Descriptor.ID)
+					}
+				}
+				hexKey := resolveNostrKey()
+				if hexKey == "" {
+					return m, nil
+				}
+				if len(targets) > 0 {
+					m.nostrStatus = fmt.Sprintf("Nostr: earmarking and sharing to %d channel(s)...", len(targets))
+				} else {
+					m.nostrStatus = "Nostr: saving earmark..."
+				}
+				return m, m.saveEarmarkCmd(hexKey, targets)
+			}
+			return m, nil
+		}
+
 		// While in Tag-entry mode, consume all keystrokes for input.
 		// Mirrors the nostrKeyEntry handler below — the two modes are
 		// mutually exclusive in practice because their trigger keys
@@ -299,10 +414,31 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.nostrStatus = ""
 					return m, nil
 				}
-				// Key is available: earmark to private Nostr list.
+				// With channels available, ask where this should go. The
+				// overlay opens on "personal only", so the old one-key flow is
+				// still [E] then enter.
+				if len(m.channels) > 0 {
+					m.channelPicker = true
+					m.channelCursor = 0
+					m.channelTargets = map[string]bool{}
+					m.nostrStatus = ""
+					return m, nil
+				}
 				m.nostrStatus = "Nostr: saving earmark..."
-				return m, m.saveEarmarkCmd(hexKey)
+				return m, m.saveEarmarkCmd(hexKey, nil)
 			}
+
+		case "c":
+			// Browse tracks other people have posted to your channels.
+			if resolveNostrKey() == "" {
+				m.nostrStatus = "Nostr: no key configured"
+				return m, nil
+			}
+			m.channelFeed = true
+			m.channelFeedLoad = true
+			m.channelFeedCursor = 0
+			m.channelFeedErr = ""
+			return m, m.loadChannelFeedCmd()
 
 		case "p":
 			// Publish the current track as a public post. When both Nostr
@@ -484,6 +620,37 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.loadCurrentTrack()
 
+	case channelsLoadedMsg:
+		m.channels = msg.channels
+
+	case channelFeedMsg:
+		m.channelFeedLoad = false
+		if msg.err != nil {
+			m.channelFeedErr = msg.err.Error()
+		} else {
+			m.channelPosts = msg.posts
+			m.channels = msg.channels
+			if m.channelFeedCursor >= len(m.channelPosts) {
+				m.channelFeedCursor = 0
+			}
+		}
+
+	case channelTrackReadyMsg:
+		if msg.err != nil {
+			m.nostrStatus = "Could not fetch that track: " + msg.err.Error()
+			return m, nil
+		}
+		// Slot the fetched file in after the current track and jump to it, so
+		// the surrounding playlist order is left intact.
+		at := m.currentIndex + 1
+		if at > len(m.playlist) {
+			at = len(m.playlist)
+		}
+		m.playlist = append(m.playlist[:at], append([]string{msg.path}, m.playlist[at:]...)...)
+		m.currentIndex = at
+		m.nostrStatus = ""
+		return m, m.loadCurrentTrack()
+
 	case nostrPublishedMsg:
 		if msg.err != nil {
 			m.nostrStatus = fmt.Sprintf("Nostr: %s failed — %v", msg.action, msg.err)
@@ -639,6 +806,81 @@ func (m *PlayerModel) View() string {
 		return content.String()
 	}
 
+	// Channel feed browser.
+	if m.channelFeed {
+		content.WriteString("\n")
+		content.WriteString(psPrompt.Render("channel feed:"))
+		content.WriteString("\n")
+		switch {
+		case m.channelFeedLoad:
+			content.WriteString(psPrompt.Render("  fetching..."))
+			content.WriteString("\n")
+		case m.channelFeedErr != "":
+			content.WriteString(psPrompt.Render("  " + m.channelFeedErr))
+			content.WriteString("\n")
+		case len(m.channelPosts) == 0:
+			// No backfill is by design, so say so rather than leaving the user
+			// staring at an empty list wondering what broke.
+			content.WriteString(psPrompt.Render("  nothing posted yet."))
+			content.WriteString("\n")
+			content.WriteString(psPrompt.Render("  tracks shared from now on appear here — channels do not backfill."))
+			content.WriteString("\n")
+		default:
+			names := map[string]string{}
+			for _, c := range m.channels {
+				names[c.Descriptor.ID] = c.Descriptor.Name
+			}
+			for i, post := range m.channelPosts {
+				marker := "  "
+				if m.channelFeedCursor == i {
+					marker = "> "
+				}
+				desc := post.Earmark.Title
+				if post.Earmark.Artist != "" {
+					desc = post.Earmark.Artist + " — " + desc
+				}
+				name := names[post.Chan]
+				if name == "" {
+					name = post.Chan[:8]
+				}
+				content.WriteString(psPrompt.Render(fmt.Sprintf("%s%-30s  %s", marker, desc, name)))
+				content.WriteString("\n")
+			}
+		}
+		content.WriteString(psPrompt.Render("enter play  esc close"))
+		return content.String()
+	}
+
+	// Channel-target overlay: where should this earmark go? Opens on
+	// "personal only" so the pre-channels flow is still [E] then enter.
+	if m.channelPicker {
+		content.WriteString("\n")
+		content.WriteString(psPrompt.Render("earmark to:"))
+		content.WriteString("\n")
+
+		marker := "  "
+		if m.channelCursor == 0 {
+			marker = "> "
+		}
+		content.WriteString(psPrompt.Render(marker + "personal only"))
+		content.WriteString("\n")
+
+		for i, c := range m.channels {
+			marker := "  "
+			if m.channelCursor == i+1 {
+				marker = "> "
+			}
+			box := "[ ]"
+			if m.channelTargets[c.Descriptor.ID] {
+				box = "[x]"
+			}
+			content.WriteString(psPrompt.Render(fmt.Sprintf("%s%s %s", marker, box, c.Descriptor.Name)))
+			content.WriteString("\n")
+		}
+		content.WriteString(psPrompt.Render("space toggle  enter confirm  esc cancel"))
+		return content.String()
+	}
+
 	// Nostr status (last publish result).
 	if m.nostrStatus != "" {
 		content.WriteString(psNostr.Render(m.nostrStatus))
@@ -731,18 +973,15 @@ func truncateTag(s string, width int) string {
 }
 
 // renderProgressBar renders a progress bar
-// renderControls returns the controls hint string, omitting [E] and [P] when
-// no Nostr key is available from any source (env, config, or inline).
-// [P] is shown when either Nostr or Bluesky is configured.
+// renderControls returns the controls hint string, omitting [E], [C] and [P]
+// when no Nostr key is available from any source (env, config, or inline).
+// [P] is shown when either Nostr or Bluesky is configured; [E] and [C] need
+// Nostr specifically, since earmarks and channels are Nostr constructs.
 func renderControls(hasNostr bool, hasBluesky bool) string {
-	if hasNostr && hasBluesky {
-		return "← prev  → next  space pause  e earmark  p post  t tag  d delete  esc quit"
+	if hasNostr {
+		return "← prev  → next  space pause  e earmark  c channels  p post  t tag  d delete  esc quit"
 	}
-	if hasNostr || hasBluesky {
-		// At least one platform available for posting.
-		if hasNostr {
-			return "← prev  → next  space pause  e earmark  p post  t tag  d delete  esc quit"
-		}
+	if hasBluesky {
 		return "← prev  → next  space pause  p post  t tag  d delete  esc quit"
 	}
 	return "← prev  → next  space pause  t tag  d delete  esc quit"
@@ -941,26 +1180,26 @@ func renderSocialStatus(msg socialPublishMsg) string {
 //
 // If offline at step 4/5, the earmark (with manifest) stays in the queue and
 // will be synced the next time the app starts with connectivity.
-func (m *PlayerModel) saveEarmarkCmd(hexKey string) tea.Cmd {
+func (m *PlayerModel) saveEarmarkCmd(hexKey string, channelTargets []string) tea.Cmd {
 	artist, title, album := m.artist, m.title, m.album
 	path := m.playlist[m.currentIndex]
 
 	return func() tea.Msg {
 		// Step 1: duplicate check before any work.
 		existing, _ := LoadQueue()
-		stub := Earmark{Path: path, Artist: artist, Title: title, Album: album}
-		if isDuplicateEarmark(existing, stub) {
+		stub := core.Earmark{Path: path, Artist: artist, Title: title, Album: album}
+		if core.IsDuplicateEarmark(existing, stub) {
 			return nostrPublishedMsg{action: "earmark", duplicate: true}
 		}
 
 		// Step 2: encrypt locally — gives us all chunk SHA-256s immediately.
-		prepared, manifest, err := PrepareUpload(path)
+		prepared, manifest, err := core.PrepareUpload(path)
 		if err != nil {
 			return nostrPublishedMsg{action: "earmark", err: fmt.Errorf("could not encrypt file: %w", err)}
 		}
 
 		// Step 3: persist earmark with manifest to local queue.
-		e := Earmark{
+		e := core.Earmark{
 			Artist:    artist,
 			Album:     album,
 			Title:     title,
@@ -973,26 +1212,96 @@ func (m *PlayerModel) saveEarmarkCmd(hexKey string) tea.Cmd {
 		}
 
 		// Step 4: upload chunks — fills in confirmed server lists.
-		servers, err := ResolveBlossomServers(hexKey)
+		servers, err := core.ResolveBlossomServers(hexKey)
 		if err != nil || len(servers) == 0 {
-			servers = LoadBlossomServers()
+			servers = core.BlossomServers()
 		}
 		uploadCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		if err := UploadPrepared(uploadCtx, hexKey, prepared, manifest, servers, nil); err != nil {
+		if err := core.UploadPrepared(uploadCtx, hexKey, prepared, manifest, servers, nil); err != nil {
 			// Upload failed — earmark is in queue without server lists.
 			// It will be retried on next startup via FlushQueue.
 			return nostrPublishedMsg{action: "earmark", queued: true}
 		}
 
 		// Step 5: publish earmark with complete manifest to Nostr.
-		if err := AddEarmark(hexKey, e); err != nil {
+		if err := core.AddEarmark(hexKey, e); err != nil {
 			return nostrPublishedMsg{action: "earmark", queued: true}
 		}
 
 		// Step 6: all done — remove from outbox.
 		_ = RemoveFromQueue(e)
+
+		// Step 7: share to any channels the user picked. This is a separate
+		// concern from the earmark, which is already safely published — a
+		// channel failure must not read as a failed earmark.
+		for _, chanID := range channelTargets {
+			postCtx, postCancel := context.WithTimeout(context.Background(), 90*time.Second)
+			err := core.PostToChannel(postCtx, hexKey, chanID, e)
+			postCancel()
+			if err != nil {
+				return nostrPublishedMsg{
+					action: "earmark",
+					err:    fmt.Errorf("earmarked, but could not share to channel: %w", err),
+				}
+			}
+		}
 		return nostrPublishedMsg{action: "earmark"}
+	}
+}
+
+// loadChannelFeedCmd syncs channel messages and returns the live posts.
+func (m *PlayerModel) loadChannelFeedCmd() tea.Cmd {
+	return func() tea.Msg {
+		hexKey := resolveNostrKey()
+		if hexKey == "" {
+			return channelFeedMsg{err: fmt.Errorf("no Nostr key configured")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		posts, st, err := core.SyncChannels(ctx, hexKey)
+		if err != nil {
+			return channelFeedMsg{err: err}
+		}
+		return channelFeedMsg{posts: posts, channels: st.Channels}
+	}
+}
+
+// playChannelPostCmd downloads, decrypts and reassembles a posted track so it
+// can be played locally. Nothing is added to the user's own earmark list —
+// listening is not keeping. Use the earmark CLI's "channel keep" to adopt it.
+func (m *PlayerModel) playChannelPostCmd(post core.ChannelPost) tea.Cmd {
+	return func() tea.Msg {
+		hexKey := resolveNostrKey()
+		if hexKey == "" {
+			return channelTrackReadyMsg{err: fmt.Errorf("no Nostr key configured")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		path, err := core.DownloadAndReassemble(ctx, post.Earmark.Blossom, hexKey, nil)
+		if err != nil {
+			return channelTrackReadyMsg{err: err}
+		}
+		return channelTrackReadyMsg{path: path}
+	}
+}
+
+// loadChannelsCmd fetches the user's channel list in the background at startup.
+// Errors are swallowed deliberately: channels only add targets to [E], and a
+// relay being down is not something the user can act on mid-session.
+func (m *PlayerModel) loadChannelsCmd() tea.Cmd {
+	return func() tea.Msg {
+		hexKey := resolveNostrKey()
+		if hexKey == "" {
+			return channelsLoadedMsg{}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		st, err := core.LoadChannelState(ctx, hexKey)
+		if err != nil {
+			return channelsLoadedMsg{}
+		}
+		return channelsLoadedMsg{channels: st.Channels}
 	}
 }
 
@@ -1006,7 +1315,7 @@ func (m *PlayerModel) saveKeyAndPublish(rawKey string) tea.Cmd {
 			return nostrPublishedMsg{action: "post", err: fmt.Errorf("no key entered")}
 		}
 
-		hexKey, err := resolvePrivateKey(rawKey)
+		hexKey, err := core.ResolvePrivateKey(rawKey)
 		if err != nil {
 			return nostrPublishedMsg{action: "post", err: fmt.Errorf("invalid key: %w", err)}
 		}
@@ -1034,7 +1343,7 @@ func (m *PlayerModel) saveKeyAndAddEarmark(rawKey string) tea.Cmd {
 			return nostrPublishedMsg{action: "earmark", err: fmt.Errorf("no key entered")}
 		}
 
-		hexKey, err := resolvePrivateKey(rawKey)
+		hexKey, err := core.ResolvePrivateKey(rawKey)
 		if err != nil {
 			return nostrPublishedMsg{action: "earmark", err: fmt.Errorf("invalid key: %w", err)}
 		}
@@ -1048,18 +1357,18 @@ func (m *PlayerModel) saveKeyAndAddEarmark(rawKey string) tea.Cmd {
 
 		// Duplicate check.
 		existingQ, _ := LoadQueue()
-		stub := Earmark{Path: path, Artist: artist, Title: title, Album: album}
-		if isDuplicateEarmark(existingQ, stub) {
+		stub := core.Earmark{Path: path, Artist: artist, Title: title, Album: album}
+		if core.IsDuplicateEarmark(existingQ, stub) {
 			return nostrPublishedMsg{action: "earmark", duplicate: true}
 		}
 
 		// Encrypt → upload → earmark (same sequence as saveEarmarkCmd).
-		prepared, manifest, err := PrepareUpload(path)
+		prepared, manifest, err := core.PrepareUpload(path)
 		if err != nil {
 			return nostrPublishedMsg{action: "earmark", err: fmt.Errorf("could not encrypt file: %w", err)}
 		}
 
-		e := Earmark{
+		e := core.Earmark{
 			Artist:    artist,
 			Album:     album,
 			Title:     title,
@@ -1071,17 +1380,17 @@ func (m *PlayerModel) saveKeyAndAddEarmark(rawKey string) tea.Cmd {
 			return nostrPublishedMsg{action: "earmark", err: fmt.Errorf("could not save to local queue: %w", err)}
 		}
 
-		servers, sErr := ResolveBlossomServers(hexKey)
+		servers, sErr := core.ResolveBlossomServers(hexKey)
 		if sErr != nil || len(servers) == 0 {
-			servers = LoadBlossomServers()
+			servers = core.BlossomServers()
 		}
 		uploadCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		if err := UploadPrepared(uploadCtx, hexKey, prepared, manifest, servers, nil); err != nil {
+		if err := core.UploadPrepared(uploadCtx, hexKey, prepared, manifest, servers, nil); err != nil {
 			return nostrPublishedMsg{action: "earmark", queued: true}
 		}
 
-		if err = AddEarmark(hexKey, e); err != nil {
+		if err = core.AddEarmark(hexKey, e); err != nil {
 			return nostrPublishedMsg{action: "earmark", queued: true}
 		}
 
@@ -1105,7 +1414,7 @@ func (m *PlayerModel) flushQueueCmd() tea.Cmd {
 	}
 }
 
-// cleanupCmd runs at startup to purge earmarks older than EarmarkMaxAge (30
+// cleanupCmd runs at startup to purge earmarks older than core.EarmarkMaxAge (30
 // days) and delete their Blossom chunks from all associated servers.
 func (m *PlayerModel) cleanupCmd() tea.Cmd {
 	return func() tea.Msg {
@@ -1113,7 +1422,7 @@ func (m *PlayerModel) cleanupCmd() tea.Cmd {
 		if hexKey == "" {
 			return cleanupMsg{}
 		}
-		removed, _ := CleanupOldEarmarks(hexKey)
+		removed, _ := core.CleanupOldEarmarks(hexKey)
 		return cleanupMsg{removed: removed}
 	}
 }

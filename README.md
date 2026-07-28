@@ -15,7 +15,8 @@ Earmarks expire after 30 days. This is intentional. The list isn't a permanent a
 - Recursively scans a directory for audio files and shuffles them
 - Minimal TUI: current track, progress bar, nothing else
 - Filter playback by keyword expression: `derpy jazz AND piano`, `derpy "blue note" OR prestige`
-- `[E]` earmarks the current track — encrypts it, uploads it to Blossom servers, and saves the manifest to a private Nostr list that follows you across devices
+- `[E]` earmarks the current track — encrypts it, uploads it to Blossom servers, and saves the manifest to a private Nostr list that follows you across devices. If you are in any channels, `[E]` also asks whether to share it with them.
+- `[C]` browses your channels — tracks friends have shared with you, playable inline
 - `[P]` publishes a public Nostr note about what you're listening to, with a Bandcamp or YouTube link if one can be found
 - `[D]` deletes the current file from disk
 - `derpy earmarks` plays your earmarked tracks as a playlist — using the local file if it exists, downloading and decrypting from Blossom if not
