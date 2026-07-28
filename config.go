@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	core "github.com/punkscience/earmark/earmark-core"
 )
 
 // configDir returns the path to derpy's config directory (~/.config/derpy).
@@ -38,22 +40,37 @@ type Config struct {
 	// BlueskyAppPassword is an app-specific password created in Bluesky Settings.
 	BlueskyAppPassword string `json:"bluesky_app_password,omitempty"`
 	// NostrRelays is the list of relay WebSocket URLs derpy publishes to and
-	// fetches from. When empty, defaultNostrRelays in nostr.go is used.
+	// fetches from. When empty, core.DefaultRelays() in nostr.go is used.
 	NostrRelays []string `json:"nostr_relays,omitempty"`
 	// BlossomServers is the list of Blossom server base URLs used for audio
-	// file uploads and downloads. When empty, defaultBlossomServers in
+	// file uploads and downloads. When empty, core.DefaultBlossomServers() in
 	// blossom.go is used.
 	BlossomServers []string `json:"blossom_servers,omitempty"`
 }
 
+// configureCore pushes derpy's persisted config into earmark-core. The core
+// performs no config-file I/O of its own — it has two hosts with different
+// config formats — so this must run before any core call that touches a relay
+// or a Blossom server, and again after any config change.
+func configureCore() {
+	cfg, err := LoadConfig()
+	if err != nil {
+		cfg = &Config{}
+	}
+	core.Configure(core.Settings{
+		Relays:         cfg.NostrRelays,
+		BlossomServers: cfg.BlossomServers,
+	})
+}
+
 // LoadNostrRelays returns the user-configured relay list, falling back to
-// defaultNostrRelays when none have been configured.
+// core.DefaultRelays() when none have been configured.
 func LoadNostrRelays() []string {
 	cfg, err := LoadConfig()
 	if err == nil && len(cfg.NostrRelays) > 0 {
 		return cfg.NostrRelays
 	}
-	return defaultNostrRelays
+	return core.DefaultRelays()
 }
 
 // LoadConfig reads the config file; returns an empty Config if the file does not exist.
@@ -93,7 +110,11 @@ func SaveConfig(cfg *Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return err
+	}
+	configureCore()
+	return nil
 }
 
 // LoadListenBrainzToken returns the token from the config file if set,

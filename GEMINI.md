@@ -73,3 +73,16 @@ go build -o derpy
 | `n` | Save track info to `~/track-notes.md` |
 | `d` | **Delete** current file from disk and skip to next |
 | `q` or `ESC` | Quit application |
+
+## The earmark protocol is not in this repo
+
+Earmark crypto, Blossom storage, the Nostr list and channels live in
+`github.com/punkscience/earmark/earmark-core`, shared with the earmark CLI and
+imported here as `core`. `blossom.go` and `nostr_list.go` were deleted when it
+was extracted — do not reintroduce protocol code here.
+
+`go.mod` carries a `replace` to `../earmark/earmark-core`, so derpy currently
+needs the earmark repo checked out as a sibling directory.
+
+Keyboard: `[E]` earmark (with a channel target picker when you are in any),
+`[C]` browse the channel feed.

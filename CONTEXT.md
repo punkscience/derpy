@@ -46,3 +46,10 @@ The `Sum → [Tag, ...]` mapping at `~/.config/derpy/tags.json`. Source of truth
 > **Dev:** "So a **Tag** is a search affordance — file-local, no expiry, never travels off this machine. Different concept from an **Earmark**, which is about-the-moment and follows you across devices."
 > **User:** "Right. And the **Tag** doesn't go inside the file — it's in a derpy-side index keyed by **Sum**."
 > **Dev:** "Sum being metadata-invariant means if you rename the file or retag it with Picard, the **Tag** stays attached."
+
+**Channel** — A named room of Nostr identities who share Earmarks with each
+other. Membership is set by the channel's creator. Every message is NIP-59 gift
+wrapped, so no relay can tell a channel exists. A channel post hands members the
+file key for a copy already on Blossom; nothing is re-uploaded, and posts stay
+playable for 30 days. There is no backfill: joining shows you only what is
+posted afterwards. Defined in `docs/PROTOCOL.md` in the earmark repo.

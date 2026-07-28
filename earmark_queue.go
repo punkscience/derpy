@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	core "github.com/punkscience/earmark/earmark-core"
 )
 
 // queueFilePath returns the path to the local offline earmark queue file.
@@ -20,7 +22,7 @@ func queueFilePath() (string, error) {
 
 // LoadQueue reads the offline earmark queue from disk.
 // Returns an empty slice when the queue file does not exist yet.
-func LoadQueue() ([]Earmark, error) {
+func LoadQueue() ([]core.Earmark, error) {
 	path, err := queueFilePath()
 	if err != nil {
 		return nil, err
@@ -28,13 +30,13 @@ func LoadQueue() ([]Earmark, error) {
 
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return []Earmark{}, nil
+		return []core.Earmark{}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("could not read queue file: %w", err)
 	}
 
-	var earmarks []Earmark
+	var earmarks []core.Earmark
 	if err := json.Unmarshal(data, &earmarks); err != nil {
 		return nil, fmt.Errorf("could not parse queue file: %w", err)
 	}
@@ -43,7 +45,7 @@ func LoadQueue() ([]Earmark, error) {
 
 // saveQueue atomically writes the earmark slice to the queue file.
 // It uses a temp file + rename to avoid partial writes on crash.
-func saveQueue(earmarks []Earmark) error {
+func saveQueue(earmarks []core.Earmark) error {
 	path, err := queueFilePath()
 	if err != nil {
 		return err
@@ -87,12 +89,12 @@ func saveQueue(earmarks []Earmark) error {
 // write if the same file is already queued.
 // This is the first thing called on [E] press — guarantees no data loss even
 // if the subsequent Nostr publish fails or the machine is offline.
-func AppendToQueue(e Earmark) error {
+func AppendToQueue(e core.Earmark) error {
 	existing, err := LoadQueue()
 	if err != nil {
 		return err
 	}
-	if isDuplicateEarmark(existing, e) {
+	if core.IsDuplicateEarmark(existing, e) {
 		return nil // already in the local queue
 	}
 	return saveQueue(append(existing, e))
@@ -101,7 +103,7 @@ func AppendToQueue(e Earmark) error {
 // RemoveFromQueue removes the earmark whose Timestamp matches e.Timestamp.
 // Called after a successful Nostr publish to clear the entry from the outbox.
 // If no match is found the queue is left unchanged (idempotent).
-func RemoveFromQueue(e Earmark) error {
+func RemoveFromQueue(e core.Earmark) error {
 	existing, err := LoadQueue()
 	if err != nil {
 		return err
@@ -138,7 +140,7 @@ func FlushQueue(hexPrivKey string) (int, error) {
 	// This avoids N round-trips to the relay for N queued items.
 	flushed := 0
 	for _, e := range queue {
-		if publishErr := AddEarmark(hexPrivKey, e); publishErr == nil {
+		if publishErr := core.AddEarmark(hexPrivKey, e); publishErr == nil {
 			// Published — remove from outbox.
 			_ = RemoveFromQueue(e)
 			flushed++
