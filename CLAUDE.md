@@ -28,7 +28,7 @@ Everything to do with earmarks — AES-256-GCM chunking, Blossom upload/download
 
 The core reads no config files. `configureCore()` in `config.go` pushes derpy's relay and Blossom server lists into it; it runs at startup in `main()` and again from `SaveConfig`. A new core setting that is not added to `configureCore` silently does nothing.
 
-> **Local dependency.** `go.mod` carries `replace github.com/punkscience/earmark/earmark-core => ../earmark/earmark-core`. Until the core is tagged and published, derpy only builds with the earmark repo checked out as a sibling directory.
+> **Versioned dependency.** derpy consumes tagged releases of the core (`earmark-core/vX.Y.Z` tags on the earmark repo), currently v0.1.0. It builds standalone — no sibling checkout needed. To develop against unreleased core changes, add a temporary `replace => ../earmark/earmark-core` and drop it before committing.
 
 | File | Role |
 |------|------|

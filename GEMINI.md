@@ -81,8 +81,10 @@ Earmark crypto, Blossom storage, the Nostr list and channels live in
 imported here as `core`. `blossom.go` and `nostr_list.go` were deleted when it
 was extracted — do not reintroduce protocol code here.
 
-`go.mod` carries a `replace` to `../earmark/earmark-core`, so derpy currently
-needs the earmark repo checked out as a sibling directory.
+derpy consumes tagged releases of the core (`earmark-core/vX.Y.Z` tags on the
+earmark repo) and builds standalone. To work against unreleased core changes,
+add a temporary `replace => ../earmark/earmark-core` and drop it before
+committing.
 
 Keyboard: `[E]` earmark (with a channel target picker when you are in any),
 `[C]` browse the channel feed.
