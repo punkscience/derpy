@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.0.0). Optional when run from a tag push."
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -54,3 +60,151 @@ jobs:
           args: release --clean --skip=brews
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  chocolatey:
+    needs: goreleaser
+    runs-on: windows-latest
+    steps:
+      - name: Determine release tag
+        id: tag
+        shell: pwsh
+        run: |
+          $tag = ""
+          $ref = "${{ github.ref }}"
+          $refName = "${{ github.ref_name }}"
+          $releaseTag = "${{ github.event.release.tag_name }}"
+          $inputTag = "${{ inputs.tag }}"
+          if ($ref -like "refs/tags/*" -and -not [string]::IsNullOrWhiteSpace($refName)) {
+            $tag = $refName
+          } elseif (-not [string]::IsNullOrWhiteSpace($releaseTag)) {
+            $tag = $releaseTag
+          } elseif (-not [string]::IsNullOrWhiteSpace($inputTag)) {
+            $tag = $inputTag
+          }
+
+          if (-not $tag) {
+            throw "Could not determine release tag. Provide workflow_dispatch input 'tag'."
+          }
+
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
+            throw "Invalid tag format '$tag'. Expected vMAJOR.MINOR.PATCH."
+          }
+
+          $version = $tag.TrimStart("v")
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Download release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ steps.tag.outputs.tag }}"
+          $version = "${{ steps.tag.outputs.version }}"
+          $archive = "derpy_${version}_windows_amd64.zip"
+          gh release download $tag --repo "${{ github.repository }}" --pattern $archive --pattern "checksums.txt" --clobber
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $archive) -or -not (Test-Path "checksums.txt")) {
+            throw "Failed to download release assets for tag '$tag'. Expected files: '$archive' and 'checksums.txt'."
+          }
+
+      - name: Read Windows checksum
+        id: checksum
+        shell: pwsh
+        run: |
+          $version = "${{ steps.tag.outputs.version }}"
+          $archive = "derpy_${version}_windows_amd64.zip"
+          $line = Select-String -Path checksums.txt -Pattern $archive | Select-Object -First 1
+          if (-not $line) {
+            throw "Could not find checksum for $archive in checksums.txt"
+          }
+          $checksum = ($line.Line -split '\s+')[0]
+          "archive=$archive" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "sha256=$checksum" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Generate Chocolatey package files
+        id: package
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.tag.outputs.tag }}"
+          $version = "${{ steps.tag.outputs.version }}"
+          $archive = "${{ steps.checksum.outputs.archive }}"
+          $sha256 = "${{ steps.checksum.outputs.sha256 }}"
+          $pkgRoot = Join-Path $PWD "chocolatey-dist"
+          $toolsDir = Join-Path $pkgRoot "tools"
+          $repoUrl = "${{ github.server_url }}/${{ github.repository }}"
+          New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
+
+          $nuspec = @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+            <metadata>
+              <id>derpy</id>
+              <version>$version</version>
+              <title>derpy</title>
+              <authors>Punk Science Studios Inc</authors>
+              <projectUrl>$repoUrl</projectUrl>
+              <licenseUrl>$repoUrl/blob/main/LICENSE</licenseUrl>
+              <requireLicenseAcceptance>false</requireLicenseAcceptance>
+              <projectSourceUrl>$repoUrl</projectSourceUrl>
+              <docsUrl>$repoUrl#readme</docsUrl>
+              <bugTrackerUrl>$repoUrl/issues</bugTrackerUrl>
+              <tags>music player terminal tui audio mp3 flac</tags>
+              <summary>Terminal music player — shuffles and plays a directory of audio files</summary>
+              <description>A terminal music player with an opinion: shuffle everything, earmark what's hitting right, let the list expire.</description>
+              <releaseNotes>$repoUrl/releases/tag/$tag</releaseNotes>
+            </metadata>
+            <files>
+              <file src="tools\**" target="tools" />
+            </files>
+          </package>
+          "@
+          Set-Content -Path (Join-Path $pkgRoot "derpy.nuspec") -Value $nuspec
+
+          $installScript = @"
+          `$ErrorActionPreference = 'Stop'
+
+          `$toolsDir = Split-Path -Parent `$MyInvocation.MyCommand.Definition
+          `$zipPath = Join-Path `$toolsDir 'derpy.zip'
+
+          Get-ChocolateyWebFile -PackageName 'derpy' -FileFullPath `$zipPath -Url64bit '$repoUrl/releases/download/$tag/$archive' -Checksum64 '$sha256' -ChecksumType64 'sha256'
+          Get-ChocolateyUnzip -FileFullPath `$zipPath -Destination `$toolsDir
+          `$exe = Get-ChildItem -Path `$toolsDir -Filter 'derpy.exe' -Recurse | Select-Object -First 1
+          if (-not `$exe) {
+            throw "derpy.exe not found in tools directory after package extraction (`$toolsDir)."
+          }
+          if (`$exe.DirectoryName -ne `$toolsDir) {
+            Move-Item -Path `$exe.FullName -Destination (Join-Path `$toolsDir 'derpy.exe') -Force
+          }
+          Remove-Item `$zipPath -Force
+          "@
+          Set-Content -Path (Join-Path $toolsDir "chocolateyInstall.ps1") -Value $installScript
+
+          "pkg_root=$pkgRoot" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Pack Chocolatey package
+        shell: pwsh
+        run: |
+          $pkgRoot = "${{ steps.package.outputs.pkg_root }}"
+          choco pack (Join-Path $pkgRoot "derpy.nuspec") --outputdirectory $pkgRoot
+          if ($LASTEXITCODE -ne 0) {
+            throw "choco pack failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Push Chocolatey package
+        shell: pwsh
+        env:
+          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
+        run: |
+          if (-not $env:CHOCOLATEY_API_KEY) {
+            throw "CHOCOLATEY_API_KEY is not set."
+          }
+          $pkgRoot = "${{ steps.package.outputs.pkg_root }}"
+          $version = "${{ steps.tag.outputs.version }}"
+          $pkgPath = Join-Path $pkgRoot "derpy.$version.nupkg"
+          if (-not (Test-Path $pkgPath)) {
+            throw "Expected package not found: $pkgPath"
+          }
+          choco push $pkgPath --source https://push.chocolatey.org/ --api-key $env:CHOCOLATEY_API_KEY
+          if ($LASTEXITCODE -ne 0) {
+            throw "choco push failed with exit code $LASTEXITCODE for package $pkgPath."
+          }
