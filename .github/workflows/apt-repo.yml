@@ -129,7 +129,7 @@ jobs:
             echo "     gpg --armor --export-secret-keys derpy-packaging@punkscience.ca"
             echo ""
             echo "  3. Add it as APT_SIGNING_KEY at:"
-            echo "     https://github.com/punkscience/derpy/settings/secrets/actions"
+            echo "     https://github.com/Punk-Science-Studios-Inc/derpy/settings/secrets/actions"
             echo ""
             echo "  4. Export the public key and commit it to gh-pages:"
             echo "     gpg --export derpy-packaging@punkscience.ca > apt/derpy-archive-keyring.gpg"
@@ -148,7 +148,7 @@ jobs:
 
       - name: Copy install.sh to gh-pages root
         run: |
-          curl -fsSL https://raw.githubusercontent.com/punkscience/derpy/main/install.sh -o install.sh
+          curl -fsSL https://raw.githubusercontent.com/Punk-Science-Studios-Inc/derpy/main/install.sh -o install.sh
           chmod +x install.sh
 
       - name: Commit and push to gh-pages

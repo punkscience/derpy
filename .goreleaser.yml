@@ -60,7 +60,7 @@ changelog:
 
 release:
   github:
-    owner: punkscience
+    owner: Punk-Science-Studios-Inc
     name: derpy
   draft: false
   prerelease: auto
@@ -71,7 +71,7 @@ brews:
       name: homebrew-derpy
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     directory: Formula
-    homepage: "https://github.com/punkscience/derpy"
+    homepage: "https://github.com/Punk-Science-Studios-Inc/derpy"
     description: "Terminal music player — shuffles and plays a directory of audio files"
     license: "Unlicense"
     test: |
@@ -82,7 +82,7 @@ nfpms:
     package_name: derpy
     file_name_template: "{{ .PackageName }}_{{ .Version }}_{{ .Arch }}"
     vendor: Punk Science Studios Inc
-    homepage: https://github.com/punkscience/derpy
+    homepage: https://github.com/Punk-Science-Studios-Inc/derpy
     maintainer: Darryl Wright <darryl@punkscience.ca>
     description: "Terminal music player — shuffles and plays a directory of audio files"
     license: Unlicense

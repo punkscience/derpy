@@ -34,7 +34,7 @@ var listenBrainzHTTPClient = &http.Client{
 // MetaBrainz require applications to identify themselves and provide contact
 // information, so every request sends a real agent string.
 func listenBrainzUserAgent() string {
-	return fmt.Sprintf("derpy/%s ( https://github.com/punkscience/derpy )", Version)
+	return fmt.Sprintf("derpy/%s ( https://github.com/Punk-Science-Studios-Inc/derpy )", Version)
 }
 
 // ListenBrainzClient wraps the ListenBrainz client functionality

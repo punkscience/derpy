@@ -73,7 +73,7 @@ A channel is a room of Nostr identities sharing earmarks. The full contract is t
 
 ### Issue tracker
 
-Issues live in GitHub Issues on `punkscience/derpy` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues on `Punk-Science-Studios-Inc/derpy` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

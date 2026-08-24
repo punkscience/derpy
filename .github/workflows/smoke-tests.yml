@@ -30,9 +30,9 @@ jobs:
 
       - name: Set up APT repository
         run: |
-          curl -fsSL https://punkscience.github.io/derpy/apt/derpy-archive-keyring.gpg \
+          curl -fsSL https://punk-science-studios-inc.github.io/derpy/apt/derpy-archive-keyring.gpg \
             -o /usr/share/keyrings/derpy-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/derpy-archive-keyring.gpg] https://punkscience.github.io/derpy/apt/ stable main" \
+          echo "deb [signed-by=/usr/share/keyrings/derpy-archive-keyring.gpg] https://punk-science-studios-inc.github.io/derpy/apt/ stable main" \
             > /etc/apt/sources.list.d/derpy.list
 
       - name: Install derpy via apt
@@ -96,7 +96,7 @@ jobs:
           $VERSION = $TAG -replace '^v', ''
           $ARCH = if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -eq 'Arm64') { 'arm64' } else { 'amd64' }
           $ZIP = "derpy_${VERSION}_windows_${ARCH}.zip"
-          $URL = "https://github.com/punkscience/derpy/releases/download/${TAG}/${ZIP}"
+          $URL = "https://github.com/Punk-Science-Studios-Inc/derpy/releases/download/${TAG}/${ZIP}"
           Write-Output "Downloading: $URL"
           Invoke-WebRequest -Uri $URL -OutFile $env:TEMP\$ZIP
           Expand-Archive -Path $env:TEMP\$ZIP -DestinationPath $env:TEMP\derpy

@@ -4,7 +4,7 @@
 # or runs it directly for Linux.
 #
 # Usage:
-#   curl -fsSL https://punkscience.github.io/derpy/install.sh | bash
+#   curl -fsSL https://punk-science-studios-inc.github.io/derpy/install.sh | bash
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -48,7 +48,7 @@ install_linux() {
         # When piped via curl|bash or bash <(curl), $0 is /dev/fd/N which
         # sudo cannot read. Re-fetch from the canonical URL in that case.
         if [ ! -f "$0" ] || [ "${0#/dev/fd/}" != "$0" ]; then
-            SCRIPT_URL="https://punkscience.github.io/derpy/install.sh"
+            SCRIPT_URL="https://punk-science-studios-inc.github.io/derpy/install.sh"
             TMP_SCRIPT="$(mktemp /tmp/derpy-install.XXXXXX)"
             curl -fsSL "$SCRIPT_URL" -o "$TMP_SCRIPT"
             exec sudo bash "$TMP_SCRIPT"
@@ -60,13 +60,13 @@ install_linux() {
 
     # 1. Install GPG signing key (binary format, ready for apt)
     echo "  → Installing derpy APT signing key…"
-    curl -fsSL https://punkscience.github.io/derpy/apt/derpy-archive-keyring.gpg \
+    curl -fsSL https://punk-science-studios-inc.github.io/derpy/apt/derpy-archive-keyring.gpg \
         -o /usr/share/keyrings/derpy-archive-keyring.gpg
 
     # 2. Add apt source
     echo "  → Adding derpy APT source…"
     cat > /etc/apt/sources.list.d/derpy.list <<'SOURCELIST'
-deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/derpy-archive-keyring.gpg] https://punkscience.github.io/derpy/apt/ stable main
+deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/derpy-archive-keyring.gpg] https://punk-science-studios-inc.github.io/derpy/apt/ stable main
 SOURCELIST
 
     # 3. Update and install
@@ -118,7 +118,7 @@ install_windows() {
     fi
 
     local zip="derpy_${version}_windows_${arch}.zip"
-    local url="https://github.com/punkscience/derpy/releases/download/${tag}/${zip}"
+    local url="https://github.com/Punk-Science-Studios-Inc/derpy/releases/download/${tag}/${zip}"
     local install_dir="$HOME/.local/bin"
 
     mkdir -p "$install_dir"

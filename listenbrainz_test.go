@@ -73,7 +73,7 @@ func TestSubmitSendsIdentifyingUserAgent(t *testing.T) {
 		t.Errorf("User-Agent = %q, want it to start with %q", got.userAgent, "derpy/")
 	}
 	// MetaBrainz require contact information in the agent string.
-	if !strings.Contains(got.userAgent, "github.com/punkscience/derpy") {
+	if !strings.Contains(got.userAgent, "github.com/Punk-Science-Studios-Inc/derpy") {
 		t.Errorf("User-Agent = %q, want it to carry contact information", got.userAgent)
 	}
 }

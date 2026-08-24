@@ -27,7 +27,7 @@ Earmarks expire after 30 days. This is intentional. The list isn't a permanent a
 ### One-liner (all platforms)
 
 ```bash
-curl -fsSL https://punkscience.github.io/derpy/install.sh | bash
+curl -fsSL https://punk-science-studios-inc.github.io/derpy/install.sh | bash
 ```
 
 The script detects your OS and walks you through the right install.
@@ -38,8 +38,8 @@ The script detects your OS and walks you through the right install.
 
 ```bash
 # Add the GPG key and APT source, then install
-curl -fsSL https://punkscience.github.io/derpy/apt/derpy-archive-keyring.gpg | sudo tee /usr/share/keyrings/derpy-archive-keyring.gpg
-echo 'deb [signed-by=/usr/share/keyrings/derpy-archive-keyring.gpg] https://punkscience.github.io/derpy/apt/ stable main' | sudo tee /etc/apt/sources.list.d/derpy.list
+curl -fsSL https://punk-science-studios-inc.github.io/derpy/apt/derpy-archive-keyring.gpg | sudo tee /usr/share/keyrings/derpy-archive-keyring.gpg
+echo 'deb [signed-by=/usr/share/keyrings/derpy-archive-keyring.gpg] https://punk-science-studios-inc.github.io/derpy/apt/ stable main' | sudo tee /etc/apt/sources.list.d/derpy.list
 sudo apt update && sudo apt install derpy
 ```
 
@@ -65,12 +65,12 @@ choco install derpy
 
 ```powershell
 # amd64 (most systems)
-Invoke-WebRequest -Uri https://github.com/punkscience/derpy/releases/latest/download/derpy_windows_amd64.zip -OutFile derpy.zip
+Invoke-WebRequest -Uri https://github.com/Punk-Science-Studios-Inc/derpy/releases/latest/download/derpy_windows_amd64.zip -OutFile derpy.zip
 Expand-Archive derpy.zip -DestinationPath .
 .\derpy.exe --help
 
 # arm64
-Invoke-WebRequest -Uri https://github.com/punkscience/derpy/releases/latest/download/derpy_windows_arm64.zip -OutFile derpy.zip
+Invoke-WebRequest -Uri https://github.com/Punk-Science-Studios-Inc/derpy/releases/latest/download/derpy_windows_arm64.zip -OutFile derpy.zip
 ```
 
 ### Build from source
@@ -78,7 +78,7 @@ Invoke-WebRequest -Uri https://github.com/punkscience/derpy/releases/latest/down
 Requires Go 1.21+.
 
 ```bash
-git clone https://github.com/punkscience/derpy
+git clone https://github.com/Punk-Science-Studios-Inc/derpy
 cd derpy
 go build -o derpy
 ```
