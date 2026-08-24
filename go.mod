@@ -12,7 +12,6 @@ require (
 	github.com/go-ole/go-ole v1.2.6
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/gopxl/beep v1.4.1
-	github.com/hirigaray/go-listenbrainz v0.0.0-20241208212301-5487bfa2a78c
 	github.com/jfreymuth/pulse v0.1.1
 	github.com/nbd-wtf/go-nostr v0.52.3
 	github.com/spf13/cobra v1.10.2
