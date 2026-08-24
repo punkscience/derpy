@@ -48,8 +48,18 @@ func newFakeListenBrainz(t *testing.T, status int, respBody string) *capturedReq
 		listenBrainzAPIBase = oldBase
 		listenBrainzHTTPClient = oldClient
 	})
+	noRetryDelay(t)
 
 	return got
+}
+
+// noRetryDelay strips the retry backoff so tests that exercise a retryable
+// failure finish instantly instead of sleeping the production delays.
+func noRetryDelay(t *testing.T) {
+	t.Helper()
+	old := listenBrainzRetryBackoff
+	listenBrainzRetryBackoff = make([]time.Duration, len(old))
+	t.Cleanup(func() { listenBrainzRetryBackoff = old })
 }
 
 // TestSubmitSendsIdentifyingUserAgent is the regression test for the scrobbling
@@ -209,5 +219,110 @@ func TestUpdateSubmitsOncePerTrack(t *testing.T) {
 	case <-done:
 		t.Fatalf("more than 2 submissions were sent (%d requests)", calls.Load())
 	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+// newFlakyListenBrainz starts a server that fails the first failures requests
+// with the given status, then succeeds. It returns the request count.
+func newFlakyListenBrainz(t *testing.T, failures int, status int) *int32 {
+	t.Helper()
+
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if int(atomic.AddInt32(&calls, 1)) <= failures {
+			w.WriteHeader(status)
+			_, _ = io.WriteString(w, `{"error":"transient"}`)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"status":"ok"}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	oldBase, oldClient := listenBrainzAPIBase, listenBrainzHTTPClient
+	listenBrainzAPIBase, listenBrainzHTTPClient = srv.URL, srv.Client()
+	t.Cleanup(func() { listenBrainzAPIBase, listenBrainzHTTPClient = oldBase, oldClient })
+	noRetryDelay(t)
+
+	return &calls
+}
+
+// TestSubmitRetriesTransientFailure covers the dropped-listen bug: the tracker
+// marks a submission done before dispatching it, so a submission that gives up
+// on the first transient error loses that listen for good.
+func TestSubmitRetriesTransientFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+	}{
+		{"server error", http.StatusInternalServerError},
+		{"bad gateway", http.StatusBadGateway},
+		{"rate limited", http.StatusTooManyRequests},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := newFlakyListenBrainz(t, 1, tc.status)
+
+			lbc := &ListenBrainzClient{token: "test-token"}
+			if err := lbc.SubmitScrobble("Artist", "Title", "Album", time.Unix(1700000000, 0)); err != nil {
+				t.Fatalf("expected the retry to succeed, got %v", err)
+			}
+			if got := atomic.LoadInt32(calls); got != 2 {
+				t.Errorf("expected 2 attempts (one failure, one success), got %d", got)
+			}
+		})
+	}
+}
+
+// TestSubmitDoesNotRetryPermanentFailure guards the other side: resending a
+// rejected payload unchanged only repeats the rejection, so a bad token or a
+// malformed body must fail on the first attempt.
+func TestSubmitDoesNotRetryPermanentFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+	}{
+		{"bad token", http.StatusUnauthorized},
+		{"bad payload", http.StatusBadRequest},
+		{"forbidden", http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Fail every request; a non-retryable status must stop at one.
+			calls := newFlakyListenBrainz(t, 99, tc.status)
+
+			lbc := &ListenBrainzClient{token: "test-token"}
+			if err := lbc.SubmitScrobble("Artist", "Title", "Album", time.Unix(1700000000, 0)); err == nil {
+				t.Fatal("expected an error for a rejected submission, got nil")
+			}
+			if got := atomic.LoadInt32(calls); got != 1 {
+				t.Errorf("expected exactly 1 attempt for a permanent failure, got %d", got)
+			}
+		})
+	}
+}
+
+// TestSubmitGivesUpAfterMaxAttempts keeps the retry bounded, so a sustained
+// upstream outage cannot spin indefinitely.
+func TestSubmitGivesUpAfterMaxAttempts(t *testing.T) {
+	calls := newFlakyListenBrainz(t, 99, http.StatusInternalServerError)
+
+	lbc := &ListenBrainzClient{token: "test-token"}
+	err := lbc.SubmitScrobble("Artist", "Title", "Album", time.Unix(1700000000, 0))
+	if err == nil {
+		t.Fatal("expected an error once the attempts are exhausted, got nil")
+	}
+	if got := atomic.LoadInt32(calls); int(got) != listenBrainzMaxAttempts {
+		t.Errorf("expected %d attempts, got %d", listenBrainzMaxAttempts, got)
+	}
+	if !strings.Contains(err.Error(), "after 3 attempts") {
+		t.Errorf("error %q should say how many attempts were made", err)
+	}
+}
+
+// TestRetryBackoffMatchesMaxAttempts pins the invariant that submit indexes
+// into: one delay per retry, which is one fewer than the attempt count.
+func TestRetryBackoffMatchesMaxAttempts(t *testing.T) {
+	if len(listenBrainzRetryBackoff) != listenBrainzMaxAttempts-1 {
+		t.Fatalf("listenBrainzRetryBackoff has %d entries, need %d for %d attempts",
+			len(listenBrainzRetryBackoff), listenBrainzMaxAttempts-1, listenBrainzMaxAttempts)
 	}
 }

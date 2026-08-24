@@ -16,11 +16,23 @@ import (
 var listenBrainzAPIBase = "https://api.listenbrainz.org"
 
 // listenBrainzHTTPClient is used for all outbound ListenBrainz requests.
-// The timeout is not optional: submissions are triggered from the playback
-// position path, so a hung request must never stall playback indefinitely.
+// The timeout is not optional: it bounds how long a submission goroutine can
+// live. It is generous because ScrobbleTracker dispatches submissions off the
+// playback path, so a slow request costs nothing but a goroutine — whereas a
+// tight timeout turns ordinary upstream slowness into a dropped listen.
 var listenBrainzHTTPClient = &http.Client{
-	Timeout: 10 * time.Second,
+	Timeout: 30 * time.Second,
 }
+
+// listenBrainzMaxAttempts bounds how many times a transient submission failure
+// is retried. api.listenbrainz.org intermittently fails to answer within the
+// client timeout; without a retry the listen is dropped, because the tracker
+// marks a submission done before dispatching it and never revisits the flag.
+const listenBrainzMaxAttempts = 3
+
+// listenBrainzRetryBackoff is the delay before each retry, so it holds one
+// fewer entry than listenBrainzMaxAttempts. Tests set it to zero delays.
+var listenBrainzRetryBackoff = []time.Duration{1 * time.Second, 3 * time.Second}
 
 // listenBrainzUserAgent identifies derpy to the MetaBrainz servers.
 //
@@ -92,9 +104,36 @@ func (lbc *ListenBrainzClient) submit(sub lbSubmission) error {
 		return fmt.Errorf("encoding %s submission: %w", sub.ListenType, err)
 	}
 
+	var lastErr error
+	for attempt := 0; attempt < listenBrainzMaxAttempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(listenBrainzRetryBackoff[attempt-1])
+		}
+
+		retryable, err := lbc.submitOnce(sub.ListenType, body)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !retryable {
+			return err
+		}
+	}
+
+	return fmt.Errorf("after %d attempts: %w", listenBrainzMaxAttempts, lastErr)
+}
+
+// submitOnce performs a single submission attempt. It reports whether the
+// failure is worth retrying: transport errors (timeouts, resets), 429 and 5xx
+// are transient, while any other 4xx means the request itself is wrong and
+// resending it unchanged would only repeat the rejection.
+//
+// The request is rebuilt on every attempt because the body reader is consumed
+// by the first one.
+func (lbc *ListenBrainzClient) submitOnce(listenType string, body []byte) (retryable bool, err error) {
 	req, err := http.NewRequest(http.MethodPost, listenBrainzAPIBase+"/1/submit-listens", bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("building %s request: %w", sub.ListenType, err)
+		return false, fmt.Errorf("building %s request: %w", listenType, err)
 	}
 	req.Header.Set("Authorization", "Token "+lbc.token)
 	req.Header.Set("Content-Type", "application/json")
@@ -102,7 +141,8 @@ func (lbc *ListenBrainzClient) submit(sub lbSubmission) error {
 
 	resp, err := listenBrainzHTTPClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("submitting %s: %w", sub.ListenType, err)
+		// The server was never reached, or never answered. Always transient.
+		return true, fmt.Errorf("submitting %s: %w", listenType, err)
 	}
 	defer resp.Body.Close()
 
@@ -111,10 +151,11 @@ func (lbc *ListenBrainzClient) submit(sub lbSubmission) error {
 	snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("listenbrainz rejected %s: %s: %s",
-			sub.ListenType, resp.Status, strings.TrimSpace(string(snippet)))
+		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
+		return retryable, fmt.Errorf("listenbrainz rejected %s: %s: %s",
+			listenType, resp.Status, strings.TrimSpace(string(snippet)))
 	}
-	return nil
+	return false, nil
 }
 
 // SubmitListenNow submits a "playing now" listen to ListenBrainz
