@@ -121,6 +121,8 @@ limit. A typical FLAC is 40–100 MB. Files must be split before upload.
 
 [x] Optional scrobbling via LISTENBRAINZ_TOKEN env var or `derpy token <token>` command.
 [x] "Playing now" is submitted immediately; scrobble fires at 25% completion (minimum 30s tracks).
+[x] Submissions send an identifying `derpy/<version>` User-Agent with contact info. Required: api.listenbrainz.org resets the HTTP/2 stream (surfacing as `PROTOCOL_ERROR`) for Go's default `Go-http-client/2.0` agent.
+[x] Non-2xx responses are reported as errors; submissions run off the playback thread with a 10s timeout.
 
 ## Other Features
 
