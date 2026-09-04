@@ -24,8 +24,8 @@ func TestNewPlayerModelLoadsTagState(t *testing.T) {
 }
 
 // TestTrackLoadedMsgStashesSumAndTags verifies the Update handler for
-// trackLoadedMsg copies the Sum and Tags onto the model so the right-edge
-// column (slice 3) can render them on subsequent ticks.
+// trackLoadedMsg copies the Sum and Tags onto the model so the Zen whisper
+// row can render them on subsequent ticks.
 func TestTrackLoadedMsgStashesSumAndTags(t *testing.T) {
 	m := NewPlayerModel([]string{"a.flac"})
 
@@ -154,20 +154,17 @@ func TestTruncateTag(t *testing.T) {
 	}
 }
 
-// TestViewIncludesTagsWhenWideAndTagged verifies the right-edge column
-// shows up when (a) the current Track has Tags and (b) the terminal is at
-// or above twoColumnMinWidth.
-func TestViewIncludesTagsWhenWideAndTagged(t *testing.T) {
+// TestViewShowsTagsInlineInWhisper verifies the Zen contract: the current
+// Track's Tags fold into the centered position whisper ("1 / 1 · jazz ·
+// piano") instead of a right-edge column, so no side 'tags' header exists.
+func TestViewShowsTagsInlineInWhisper(t *testing.T) {
 	m := NewPlayerModel([]string{"a.flac"})
 	m.Update(trackLoadedMsg{sum: "s1", tags: []string{"jazz", "piano"}, title: "X", artist: "Y"})
 	m.width = 100
 
 	out := m.View()
-	if !strings.Contains(out, "jazz") {
-		t.Errorf("wide+tagged View missing 'jazz': %q", out)
-	}
-	if !strings.Contains(out, "tags") {
-		t.Errorf("wide+tagged View missing 'tags' header: %q", out)
+	if !strings.Contains(out, "1 / 1 · jazz · piano") {
+		t.Errorf("tagged View should fold tags into the whisper row: %q", out)
 	}
 }
 
@@ -185,14 +182,16 @@ func TestViewHidesTagsWhenUntagged(t *testing.T) {
 	}
 }
 
-func TestViewHidesTagsWhenTerminalNarrow(t *testing.T) {
+// TestViewKeepsTagsInlineWhenNarrow verifies Zen dropped the old two-column
+// breakpoint: Tags stay in the whisper row at any terminal width.
+func TestViewKeepsTagsInlineWhenNarrow(t *testing.T) {
 	m := NewPlayerModel([]string{"a.flac"})
 	m.Update(trackLoadedMsg{sum: "s1", tags: []string{"jazz"}, title: "X", artist: "Y"})
-	m.width = twoColumnMinWidth - 1 // just below threshold
+	m.width = twoColumnMinWidth - 1 // just below the old threshold
 
 	out := m.View()
-	if strings.Contains(out, "jazz") {
-		t.Errorf("narrow View should drop right column; saw 'jazz' in %q", out)
+	if !strings.Contains(out, "jazz") {
+		t.Errorf("narrow View should keep tags inline in the whisper row: %q", out)
 	}
 }
 
@@ -328,8 +327,8 @@ func TestViewShowsTagEntryOverlay(t *testing.T) {
 	if !strings.Contains(out, "dnb") {
 		t.Errorf("tag-entry overlay should echo buffer: %q", out)
 	}
-	// Right column stays visible during tag entry — verify the existing
-	// "jazz" tag is still rendered alongside the overlay.
+	// The current set stays visible ("now: jazz") while the buffer holds the
+	// draft — you are editing what is there.
 	if !strings.Contains(out, "jazz") {
 		t.Errorf("right column should remain visible during tag entry: %q", out)
 	}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 	"unicode"
@@ -89,6 +88,11 @@ type PlayerModel struct {
 	// the whole playlist has failed in a row (e.g. the music drive was
 	// unmounted), which is treated as fatal rather than looping forever.
 	loadFailures int
+
+	// help shows the Zen keys card. It carries key discoverability so the
+	// home hint can stay minimal; esc/? dismisses it, and any other key
+	// dismisses it first and then processes normally.
+	help bool
 }
 
 // indexProgressMsg is sent by IndexSource (running in a background
@@ -211,6 +215,15 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case tea.KeyMsg:
+		// The Zen help card dismisses on esc/?; any other key closes it
+		// first and then processes normally.
+		if m.help {
+			if msg.String() == "esc" || msg.String() == "?" {
+				m.help = false
+				return m, nil
+			}
+			m.help = false
+		}
 		// While the channel feed browser is up, consume all keystrokes.
 		if m.channelFeed {
 			switch msg.String() {
@@ -362,6 +375,10 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
+		case "?":
+			m.help = true
+			return m, nil
+
 		case "q", "esc", "ctrl+c":
 			m.player.Close()
 			return m, tea.Quit
@@ -729,210 +746,10 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the TUI
-func (m *PlayerModel) View() string {
-	if m.err != nil {
-		return fmt.Sprintf("error: %v\nq or esc to quit", m.err)
-	}
 
-	if len(m.playlist) == 0 {
-		return "silence.\nq or esc to quit"
-	}
-
-	// Determine track display
-	var trackDisplay string
-	if m.title != "" && m.artist != "" {
-		trackDisplay = fmt.Sprintf("%s - %s", m.artist, m.title)
-	} else if m.title != "" {
-		trackDisplay = m.title
-	} else {
-		// Fallback to filename
-		trackDisplay = filepath.Base(m.playlist[m.currentIndex])
-		if ext := filepath.Ext(trackDisplay); ext != "" {
-			trackDisplay = strings.TrimSuffix(trackDisplay, ext)
-		}
-	}
-
-	// Build the UI
-	var content strings.Builder
-
-	// Title
-	content.WriteString(psTitle.Render("punk.science · derpy"))
-	content.WriteString("\n\n")
-
-	// Current track
-	content.WriteString(psTrack.Render(trackDisplay))
-	content.WriteString("\n")
-
-	// Track info
-	trackInfo := fmt.Sprintf("Track %d of %d", m.currentIndex+1, len(m.playlist))
-	content.WriteString(psStatus.Render(trackInfo))
-	content.WriteString("\n")
-
-	// Status
-	status := "■ stopped"
-	if m.playing {
-		if m.paused {
-			status = "⏸ paused"
-		} else {
-			status = "▶ playing"
-		}
-	}
-	content.WriteString(psStatus.Render(status))
-	content.WriteString("\n\n")
-
-	// Progress bar
-	progressBar := m.renderProgressBar(40)
-	content.WriteString(psProgress.Render(progressBar))
-	content.WriteString("\n")
-
-	// Time display
-	posStr := formatDuration(m.position)
-	durStr := formatDuration(m.duration)
-	timeDisplay := fmt.Sprintf("%s / %s", posStr, durStr)
-	content.WriteString(psStatus.Render(timeDisplay))
-	content.WriteString("\n")
-
-	// Nostr key-entry overlay: shown instead of controls while waiting for input.
-	if m.nostrKeyEntry {
-		// Mask the typed key with asterisks for security.
-		masked := strings.Repeat("*", len(m.nostrKeyBuffer))
-		content.WriteString("\n")
-		content.WriteString(psPrompt.Render("nostr key required."))
-		content.WriteString("\n")
-		content.WriteString(psPrompt.Render("paste nsec1... or hex key — enter to save, esc to cancel"))
-		content.WriteString("\n")
-		content.WriteString(psPrompt.Render(fmt.Sprintf("> %s", masked)))
-		return content.String()
-	}
-
-	// Channel feed browser.
-	if m.channelFeed {
-		content.WriteString("\n")
-		content.WriteString(psPrompt.Render("channel feed:"))
-		content.WriteString("\n")
-		switch {
-		case m.channelFeedLoad:
-			content.WriteString(psPrompt.Render("  fetching..."))
-			content.WriteString("\n")
-		case m.channelFeedErr != "":
-			content.WriteString(psPrompt.Render("  " + m.channelFeedErr))
-			content.WriteString("\n")
-		case len(m.channels) == 0:
-			// Being in no channels and being in an empty one look identical
-			// otherwise, and neither hints that the feature exists at all.
-			content.WriteString(psPrompt.Render("  you are not in any channels yet."))
-			content.WriteString("\n")
-			content.WriteString(psPrompt.Render("  create one:   earmark channel create <name>"))
-			content.WriteString("\n")
-			content.WriteString(psPrompt.Render("  then invite:  earmark channel invite <name> <npub>"))
-			content.WriteString("\n")
-		case len(m.channelPosts) == 0:
-			// No backfill is by design, so say so rather than leaving the user
-			// staring at an empty list wondering what broke.
-			content.WriteString(psPrompt.Render("  nothing posted yet."))
-			content.WriteString("\n")
-			content.WriteString(psPrompt.Render("  tracks shared from now on appear here — channels do not backfill."))
-			content.WriteString("\n")
-		default:
-			names := map[string]string{}
-			for _, c := range m.channels {
-				names[c.Descriptor.ID] = c.Descriptor.Name
-			}
-			for i, post := range m.channelPosts {
-				marker := "  "
-				if m.channelFeedCursor == i {
-					marker = "> "
-				}
-				desc := post.Earmark.Title
-				if post.Earmark.Artist != "" {
-					desc = post.Earmark.Artist + " — " + desc
-				}
-				name := names[post.Chan]
-				if name == "" {
-					name = post.Chan[:8]
-				}
-				content.WriteString(psPrompt.Render(fmt.Sprintf("%s%-30s  %s", marker, desc, name)))
-				content.WriteString("\n")
-			}
-		}
-		content.WriteString(psPrompt.Render("enter play  esc close"))
-		return content.String()
-	}
-
-	// Channel-target overlay: where should this earmark go? Opens on
-	// "personal only" so the pre-channels flow is still [E] then enter.
-	if m.channelPicker {
-		content.WriteString("\n")
-		content.WriteString(psPrompt.Render("earmark to:"))
-		content.WriteString("\n")
-
-		marker := "  "
-		if m.channelCursor == 0 {
-			marker = "> "
-		}
-		content.WriteString(psPrompt.Render(marker + "personal only"))
-		content.WriteString("\n")
-
-		for i, c := range m.channels {
-			marker := "  "
-			if m.channelCursor == i+1 {
-				marker = "> "
-			}
-			box := "[ ]"
-			if m.channelTargets[c.Descriptor.ID] {
-				box = "[x]"
-			}
-			content.WriteString(psPrompt.Render(fmt.Sprintf("%s%s %s", marker, box, c.Descriptor.Name)))
-			content.WriteString("\n")
-		}
-		content.WriteString(psPrompt.Render("space toggle  enter confirm  esc cancel"))
-		return content.String()
-	}
-
-	// Nostr status (last publish result).
-	if m.nostrStatus != "" {
-		content.WriteString(psNostr.Render(m.nostrStatus))
-		content.WriteString("\n")
-	}
-
-	// Tag-entry overlay: shown in place of the controls hint while the
-	// user is editing Tags for the current Track. The right column stays
-	// visible (see grilling decision: "you're editing what's there —
-	// better to see it").
-	if m.tagEntry {
-		content.WriteString("\n")
-		content.WriteString(psPrompt.Render("tags for this track."))
-		content.WriteString("\n")
-		content.WriteString(psPrompt.Render("comma-separated · stripped to [a-z0-9 ]"))
-		content.WriteString("\n")
-		content.WriteString(psPrompt.Render(fmt.Sprintf("> %s", m.tagBuffer)))
-		content.WriteString("\n")
-		content.WriteString(psPrompt.Render("enter save  esc cancel"))
-		return m.composeWithTagColumn(content.String())
-	}
-
-	// Background-indexer status. Visible only while the sweep is in
-	// progress (0 < done < total). Disappears the moment it catches up,
-	// without leaving a blank line behind on the next render.
-	if m.indexingTotal > 0 && m.indexingDone < m.indexingTotal {
-		content.WriteString(m.renderIndexerSpinner())
-		content.WriteString("\n")
-	}
-
-	// Controls — hide [E] when no Nostr key, hide [P] when no platform is configured.
-	nostrKey := resolveNostrKey()
-	bskyHandle, _ := resolveBskyConfig()
-	controls := renderControls(nostrKey != "", bskyHandle != "")
-	content.WriteString(psControls.Render(controls))
-
-	return m.composeWithTagColumn(content.String())
-}
-
-// composeWithTagColumn joins the left-column content with the right-edge
-// Tag column when applicable, falling back to single-column otherwise.
-// Centralised so both the normal playback view and the tag-entry overlay
-// share the same composition logic.
+// composeWithTagColumn and renderTagsColumn below are retained for
+// compatibility: the Zen view in zen.go folds Tags into the whisper row
+// instead of a right-edge column.
 func (m *PlayerModel) composeWithTagColumn(left string) string {
 	if right := renderTagsColumn(m.currentTags); right != "" && m.width >= twoColumnMinWidth {
 		return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
