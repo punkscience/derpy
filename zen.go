@@ -254,10 +254,22 @@ func (m *PlayerModel) View() string {
 		return zenCenter(m.width, context) + "\n" + m.zenCard("", rows, "enter play · esc close")
 	}
 
-	// Channel-target overlay: the earmark always lands in the personal
-	// list; channels are additions.
+	// Channel-target overlay: personal and each channel are toggles, and the
+	// earmark goes to whatever is selected. At least one must stay checked.
 	if m.channelPicker {
-		rows := []string{psPrompt.Render("● personal — always kept, on every device")}
+		personalMarker := "  "
+		if m.channelCursor == 0 {
+			personalMarker = "› "
+		}
+		personalBox := "[ ]"
+		if m.channelPersonal {
+			personalBox = "[x]"
+		}
+		personalRow := fmt.Sprintf("%s%s personal — on every device", personalMarker, personalBox)
+		if m.channelCursor == 0 {
+			personalRow = psPrompt.Render(personalRow)
+		}
+		rows := []string{personalRow}
 		for i, c := range m.channels {
 			marker := "  "
 			if m.channelCursor == i+1 {
@@ -273,8 +285,12 @@ func (m *PlayerModel) View() string {
 			}
 			rows = append(rows, row)
 		}
+		hint := "space toggle · enter keep · esc cancel"
+		if m.channelPickerSelected() == 0 {
+			hint = "space toggle · select at least one target · esc cancel"
+		}
 		return zenCenter(m.width, context) + "\n" + m.zenCard("keep this?",
-			rows, "space toggle · enter keep · esc cancel")
+			rows, hint)
 	}
 
 	// Help overlay: carries key discoverability so the home hint can stay

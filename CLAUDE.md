@@ -54,7 +54,7 @@ The core reads no config files. `configureCore()` in `config.go` pushes derpy's 
 
 A channel is a room of Nostr identities sharing earmarks. The full contract is the Channels section of `docs/PROTOCOL.md` in the earmark repo. What matters here:
 
-- **`[E]` opens a target picker** when the user is in any channels, defaulting to "personal only" — so the pre-channels flow is still `[E]` then enter. Channels are additions; an earmark always lands in the personal list. Channel state is loaded once in the background at startup so `[E]` never blocks on a relay.
+- **`[E]` opens a target picker** when the user is in any channels, with personal pre-selected — so the pre-channels flow is still `[E]` then enter. Personal is one toggle among the targets: untick it to share to channels only. At least one target must stay selected. Channel state is loaded once in the background at startup so `[E]` never blocks on a relay.
 - **`[C]` browses the channel feed** and plays a selected post inline: downloaded, decrypted, and slotted in after the current track. Listening is not keeping — adopting a post into your own stash is `earmark channel keep` in the CLI.
 - **Posting shares nothing new.** The post hands members the existing chunk hashes and file key, so it costs one small event per member and zero bytes.
 - **There is no backfill**, and the empty-feed message says so. A newly joined channel being empty is correct, not broken.

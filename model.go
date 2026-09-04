@@ -69,10 +69,11 @@ type PlayerModel struct {
 	// Channel state. Channels are loaded once in the background at startup so
 	// pressing [E] never blocks on a relay round-trip; an empty list simply
 	// means [E] behaves exactly as it did before channels existed.
-	channels       []core.Channel
-	channelPicker  bool            // true while the [E] target overlay is up
-	channelCursor  int             // 0 = "personal only", 1..n = channels
-	channelTargets map[string]bool // channel ids selected as extra targets
+	channels        []core.Channel
+	channelPicker   bool            // true while the [E] target overlay is up
+	channelCursor   int             // 0 = personal, 1..n = channels
+	channelPersonal bool            // personal list selected as a target (toggleable)
+	channelTargets  map[string]bool // channel ids selected as targets
 
 	// Channel feed browser, opened with [C]. Posts are fetched on demand
 	// rather than at startup — the feed is a deliberate detour, not something
@@ -152,6 +153,7 @@ type nostrPublishedMsg struct {
 	action    string // "earmark" or "post" — drives the status display
 	queued    bool   // true when the earmark was saved locally but not yet published (offline)
 	duplicate bool   // true when the track was already earmarked
+	shared    bool   // true when the track went to channels only (personal unticked)
 }
 
 // socialPublishMsg combines the results of a dual-post to Nostr and Bluesky.
@@ -194,6 +196,22 @@ func NewPlayerModel(playlist []string) *PlayerModel {
 		tagIndex:     ti,
 		sumCache:     sc,
 	}
+}
+
+// channelPickerSelected counts the picker's selected targets: the personal
+// list when ticked plus each ticked channel. Enter only confirms when this is
+// non-zero — with nothing checked there is nowhere for the earmark to go.
+func (m *PlayerModel) channelPickerSelected() int {
+	n := 0
+	if m.channelPersonal {
+		n++
+	}
+	for _, c := range m.channels {
+		if m.channelTargets[c.Descriptor.ID] {
+			n++
+		}
+	}
+	return n
 }
 
 // Init initializes the model
@@ -269,31 +287,42 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case " ":
-				// Row 0 is "personal only" and is not a toggle — the earmark
-				// always lands in the personal list; channels are additions.
-				if m.channelCursor > 0 {
+				// Every row is a toggle: personal (row 0) and each channel.
+				// The earmark goes to whatever is selected when enter is hit.
+				if m.channelCursor == 0 {
+					m.channelPersonal = !m.channelPersonal
+				} else if m.channelCursor-1 < len(m.channels) {
 					id := m.channels[m.channelCursor-1].Descriptor.ID
 					m.channelTargets[id] = !m.channelTargets[id]
 				}
 				return m, nil
 			case "enter":
-				m.channelPicker = false
+				// At least one target must stay selected — with nothing
+				// checked there is nowhere for the earmark to go, so stay
+				// in the picker (the hint says as much).
+				if m.channelPickerSelected() == 0 {
+					return m, nil
+				}
 				var targets []string
 				for _, c := range m.channels {
 					if m.channelTargets[c.Descriptor.ID] {
 						targets = append(targets, c.Descriptor.ID)
 					}
 				}
+				m.channelPicker = false
 				hexKey := resolveNostrKey()
 				if hexKey == "" {
 					return m, nil
 				}
-				if len(targets) > 0 {
+				switch {
+				case m.channelPersonal && len(targets) > 0:
 					m.nostrStatus = fmt.Sprintf("Nostr: earmarking and sharing to %d channel(s)...", len(targets))
-				} else {
+				case len(targets) > 0:
+					m.nostrStatus = fmt.Sprintf("Nostr: sharing to %d channel(s)...", len(targets))
+				default:
 					m.nostrStatus = "Nostr: saving earmark..."
 				}
-				return m, m.saveEarmarkCmd(hexKey, targets)
+				return m, m.saveEarmarkCmd(hexKey, m.channelPersonal, targets)
 			}
 			return m, nil
 		}
@@ -432,17 +461,19 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				// With channels available, ask where this should go. The
-				// overlay opens on "personal only", so the old one-key flow is
-				// still [E] then enter.
+				// overlay opens with personal selected, so the old one-key
+				// flow is still [E] then enter; untick personal to share
+				// to channels only.
 				if len(m.channels) > 0 {
 					m.channelPicker = true
 					m.channelCursor = 0
+					m.channelPersonal = true
 					m.channelTargets = map[string]bool{}
 					m.nostrStatus = ""
 					return m, nil
 				}
 				m.nostrStatus = "Nostr: saving earmark..."
-				return m, m.saveEarmarkCmd(hexKey, nil)
+				return m, m.saveEarmarkCmd(hexKey, true, nil)
 			}
 
 		case "c":
@@ -677,6 +708,8 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.nostrStatus = "Nostr: already earmarked"
 		} else if msg.queued {
 			m.nostrStatus = "Nostr: earmark queued (offline — will sync later)"
+		} else if msg.shared {
+			m.nostrStatus = "Nostr: shared to channel(s)!"
 		} else {
 			m.nostrStatus = "Nostr: earmark saved!"
 		}
@@ -745,7 +778,6 @@ func (m *PlayerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	return m, nil
 }
-
 
 // composeWithTagColumn and renderTagsColumn below are retained for
 // compatibility: the Zen view in zen.go folds Tags into the whisper row
@@ -994,28 +1026,40 @@ func renderSocialStatus(msg socialPublishMsg) string {
 
 // saveEarmarkCmd returns a Bubble Tea command that earmarks the current track.
 //
+// keepPersonal controls whether the track lands in the personal Nostr list;
+// channelTargets names the channels it is shared to. At least one of the two
+// is always set — the picker guarantees it.
+//
 // Correct sequencing — chunk identities (SHA-256s) must be known before the
 // earmark is published so the manifest is complete from the start:
 //
-//  1. Duplicate check (local queue)
+//  1. Duplicate check (local queue, personal keeps only)
 //  2. Encrypt file into chunks — all SHA-256s now known, no network yet
-//  3. Write earmark WITH manifest to local queue (data safety)
+//  3. Write earmark WITH manifest to local queue (data safety, personal only)
 //  4. Upload encrypted chunks to Blossom servers — fills in server lists
-//  5. Publish earmark WITH complete manifest to Nostr in one shot
-//  6. Remove from local queue on success
+//  5. Publish earmark WITH complete manifest to Nostr in one shot (personal)
+//  6. Remove from local queue on success (personal only)
+//  7. Share to the picked channels (both modes — members download the same
+//     chunks, so the upload in step 4 always runs)
 //
-// If offline at step 4/5, the earmark (with manifest) stays in the queue and
-// will be synced the next time the app starts with connectivity.
-func (m *PlayerModel) saveEarmarkCmd(hexKey string, channelTargets []string) tea.Cmd {
+// If offline at step 4/5, a personal earmark (with manifest) stays in the
+// queue and will be synced the next time the app starts with connectivity.
+// A channel-only share has no queue to fall back on, so step-4 failure is a
+// hard error there.
+func (m *PlayerModel) saveEarmarkCmd(hexKey string, keepPersonal bool, channelTargets []string) tea.Cmd {
 	artist, title, album := m.artist, m.title, m.album
 	path := m.playlist[m.currentIndex]
 
 	return func() tea.Msg {
-		// Step 1: duplicate check before any work.
-		existing, _ := LoadQueue()
-		stub := core.Earmark{Path: path, Artist: artist, Title: title, Album: album}
-		if core.IsDuplicateEarmark(existing, stub) {
-			return nostrPublishedMsg{action: "earmark", duplicate: true}
+		// Step 1: duplicate check before any work. The local queue is the
+		// personal outbox, so this only applies when keeping personally —
+		// channel-only shares leave no local record to dedupe against.
+		if keepPersonal {
+			existing, _ := LoadQueue()
+			stub := core.Earmark{Path: path, Artist: artist, Title: title, Album: album}
+			if core.IsDuplicateEarmark(existing, stub) {
+				return nostrPublishedMsg{action: "earmark", duplicate: true}
+			}
 		}
 
 		// Step 2: encrypt locally — gives us all chunk SHA-256s immediately.
@@ -1024,7 +1068,6 @@ func (m *PlayerModel) saveEarmarkCmd(hexKey string, channelTargets []string) tea
 			return nostrPublishedMsg{action: "earmark", err: fmt.Errorf("could not encrypt file: %w", err)}
 		}
 
-		// Step 3: persist earmark with manifest to local queue.
 		e := core.Earmark{
 			Artist:    artist,
 			Album:     album,
@@ -1033,8 +1076,13 @@ func (m *PlayerModel) saveEarmarkCmd(hexKey string, channelTargets []string) tea
 			Timestamp: time.Now().Unix(),
 			Blossom:   manifest,
 		}
-		if err := AppendToQueue(e); err != nil {
-			return nostrPublishedMsg{action: "earmark", err: fmt.Errorf("could not save to local queue: %w", err)}
+
+		// Step 3: when keeping personally, persist the earmark with manifest
+		// to the local queue first (data safety).
+		if keepPersonal {
+			if err := AppendToQueue(e); err != nil {
+				return nostrPublishedMsg{action: "earmark", err: fmt.Errorf("could not save to local queue: %w", err)}
+			}
 		}
 
 		// Step 4: upload chunks — fills in confirmed server lists.
@@ -1045,34 +1093,47 @@ func (m *PlayerModel) saveEarmarkCmd(hexKey string, channelTargets []string) tea
 		uploadCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		if err := core.UploadPrepared(uploadCtx, hexKey, prepared, manifest, servers, nil); err != nil {
+			if !keepPersonal {
+				// Nothing was queued, so report the failure outright.
+				return nostrPublishedMsg{action: "earmark", err: fmt.Errorf("could not upload file: %w", err)}
+			}
 			// Upload failed — earmark is in queue without server lists.
 			// It will be retried on next startup via FlushQueue.
 			return nostrPublishedMsg{action: "earmark", queued: true}
 		}
 
-		// Step 5: publish earmark with complete manifest to Nostr.
-		if err := core.AddEarmark(hexKey, e); err != nil {
-			return nostrPublishedMsg{action: "earmark", queued: true}
+		if keepPersonal {
+			// Step 5: publish earmark with complete manifest to Nostr.
+			if err := core.AddEarmark(hexKey, e); err != nil {
+				return nostrPublishedMsg{action: "earmark", queued: true}
+			}
+
+			// Step 6: all done — remove from outbox.
+			_ = RemoveFromQueue(e)
 		}
 
-		// Step 6: all done — remove from outbox.
-		_ = RemoveFromQueue(e)
-
-		// Step 7: share to any channels the user picked. This is a separate
-		// concern from the earmark, which is already safely published — a
-		// channel failure must not read as a failed earmark.
+		// Step 7: share to any channels the user picked. On a personal keep
+		// this is a separate concern from the earmark, which is already
+		// safely published — a channel failure must not read as a failed
+		// earmark.
 		for _, chanID := range channelTargets {
 			postCtx, postCancel := context.WithTimeout(context.Background(), 90*time.Second)
 			err := core.PostToChannel(postCtx, hexKey, chanID, e)
 			postCancel()
 			if err != nil {
+				if keepPersonal {
+					return nostrPublishedMsg{
+						action: "earmark",
+						err:    fmt.Errorf("earmarked, but could not share to channel: %w", err),
+					}
+				}
 				return nostrPublishedMsg{
 					action: "earmark",
-					err:    fmt.Errorf("earmarked, but could not share to channel: %w", err),
+					err:    fmt.Errorf("could not share to channel: %w", err),
 				}
 			}
 		}
-		return nostrPublishedMsg{action: "earmark"}
+		return nostrPublishedMsg{action: "earmark", shared: !keepPersonal}
 	}
 }
 
