@@ -1,10 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/dhowden/tag"
@@ -90,6 +93,30 @@ func NewAudioPlayer() *AudioPlayer {
 	}
 }
 
+// isReadFailure reports whether err was ultimately caused by the operating
+// system being unable to read the file's bytes, rather than by the audio data
+// itself being malformed or in an unsupported format.
+//
+// The distinction matters because every beep decoder labels its failures with
+// the codec name — a dead network mount surfaces as "mp3: read ...: input/output
+// error", which reads like a broken MP3 and sends you debugging the decoder
+// instead of the filesystem. Network-backed mounts (pCloud, NFS, SMB) fail this
+// way in bulk whenever the mount goes offline or a file is not cached locally.
+//
+// Detection unwraps rather than matching strings: os.File boxes kernel errors
+// in *fs.PathError, and the beep decoders wrap with github.com/pkg/errors,
+// which implements Unwrap. Both layers are therefore transparent to errors.As.
+// Any errno at the bottom of the chain — not just EIO — means the OS refused
+// the read, so all of them classify as a read failure.
+func isReadFailure(err error) bool {
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		return true
+	}
+	var errno syscall.Errno
+	return errors.As(err, &errno)
+}
+
 // LoadTrack loads an audio file for playback
 func (ap *AudioPlayer) LoadTrack(filePath string) error {
 	// Stop any current playback and reset state
@@ -144,6 +171,9 @@ func (ap *AudioPlayer) LoadTrack(filePath string) error {
 
 	if err != nil {
 		file.Close()
+		if isReadFailure(err) {
+			return fmt.Errorf("failed to read %s (filesystem I/O error — the file's bytes could not be fetched; not a corrupt or unsupported audio file): %w", filePath, err)
+		}
 		return fmt.Errorf("failed to decode %s: %w", filePath, err)
 	}
 

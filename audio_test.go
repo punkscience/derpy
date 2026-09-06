@@ -1,9 +1,17 @@
 package main
 
 import (
+	"bytes"
+	"io"
+	"io/fs"
+	"syscall"
 	"testing"
 
 	"github.com/gopxl/beep"
+	"github.com/gopxl/beep/flac"
+	"github.com/gopxl/beep/mp3"
+	"github.com/gopxl/beep/vorbis"
+	"github.com/gopxl/beep/wav"
 )
 
 // fixedStreamer emits a set number of stereo frames, then reports completion.
@@ -90,3 +98,125 @@ func TestResampleForDeviceDownsamples(t *testing.T) {
 			deviceSampleRate, inFrames, out, got, want)
 	}
 }
+
+// --- read-failure classification ---------------------------------------
+
+// eioReadSeekCloser fails every Read the way *os.File does when the kernel
+// reports an error: os.File.wrapErr boxes the errno in an *fs.PathError. This
+// reproduces a file on an offline network mount without needing one.
+type eioReadSeekCloser struct {
+	path string
+	err  error
+}
+
+func (e eioReadSeekCloser) Read(p []byte) (int, error) {
+	return 0, &fs.PathError{Op: "read", Path: e.path, Err: e.err}
+}
+func (e eioReadSeekCloser) Seek(int64, int) (int64, error) { return 0, nil }
+func (e eioReadSeekCloser) Close() error                   { return nil }
+
+// TestIsReadFailureThroughDecoders is the regression test for the bug where an
+// unreadable file was reported as "failed to decode". Each beep decoder wraps
+// the underlying error with its own codec prefix, so the test asserts the
+// unwrap chain survives that wrapping for every format derpy supports.
+func TestIsReadFailureThroughDecoders(t *testing.T) {
+	r := eioReadSeekCloser{path: "/mnt/cloud/track", err: syscall.EIO}
+
+	decoders := map[string]func() error{
+		"mp3": func() error {
+			_, _, err := mp3.Decode(r)
+			return err
+		},
+		"flac": func() error {
+			_, _, err := flac.Decode(r)
+			return err
+		},
+		"vorbis": func() error {
+			_, _, err := vorbis.Decode(r)
+			return err
+		},
+		"wav": func() error {
+			_, _, err := wav.Decode(r)
+			return err
+		},
+	}
+
+	for name, decode := range decoders {
+		t.Run(name, func(t *testing.T) {
+			err := decode()
+			if err == nil {
+				t.Fatalf("expected %s decode of an unreadable file to fail", name)
+			}
+			if !isReadFailure(err) {
+				t.Errorf("isReadFailure(%v) = false, want true — an I/O error must not be reported as a decode failure", err)
+			}
+		})
+	}
+}
+
+// TestIsReadFailureRejectsDecodeErrors guards the other direction: a genuinely
+// malformed file must still be classified as a decode failure, or the fix would
+// simply relabel every error and lose the distinction it exists to draw.
+func TestIsReadFailureRejectsDecodeErrors(t *testing.T) {
+	// Readable bytes that are not valid audio in any supported format.
+	garbage := func() io.ReadSeekCloser {
+		return nopCloser{bytes.NewReader(make([]byte, 8192))}
+	}
+
+	cases := map[string]func() error{
+		"mp3": func() error {
+			_, _, err := mp3.Decode(garbage())
+			return err
+		},
+		"flac": func() error {
+			_, _, err := flac.Decode(garbage())
+			return err
+		},
+		"vorbis": func() error {
+			_, _, err := vorbis.Decode(garbage())
+			return err
+		},
+		"wav": func() error {
+			_, _, err := wav.Decode(garbage())
+			return err
+		},
+	}
+
+	for name, decode := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := decode()
+			if err == nil {
+				t.Skipf("%s decoder accepted the zero-filled input; nothing to classify", name)
+			}
+			if isReadFailure(err) {
+				t.Errorf("isReadFailure(%v) = true, want false — a malformed file is not an I/O failure", err)
+			}
+		})
+	}
+}
+
+// TestIsReadFailureNonEIOErrno covers mounts that report something other than
+// EIO (a stale NFS handle, a vanished file); any errno means the OS refused
+// the read, so all of them must classify the same way.
+func TestIsReadFailureNonEIOErrno(t *testing.T) {
+	for _, errno := range []syscall.Errno{syscall.EIO, syscall.ESTALE, syscall.EACCES, syscall.ENODEV} {
+		_, _, err := mp3.Decode(eioReadSeekCloser{path: "/mnt/cloud/track", err: errno})
+		if err == nil {
+			t.Fatalf("expected decode to fail for errno %v", errno)
+		}
+		if !isReadFailure(err) {
+			t.Errorf("isReadFailure for errno %v = false, want true", errno)
+		}
+	}
+}
+
+func TestIsReadFailureNil(t *testing.T) {
+	if isReadFailure(nil) {
+		t.Error("isReadFailure(nil) = true, want false")
+	}
+}
+
+// nopCloser adapts a *bytes.Reader to io.ReadSeekCloser.
+type nopCloser struct{ *bytes.Reader }
+
+func (nopCloser) Close() error { return nil }
